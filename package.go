@@ -18,7 +18,11 @@ func Package(path string) ([]byte, error) {
 }
 
 func buildBinary(path string) ([]byte, error) {
-	err := os.Setenv("GOOS", "linux")
+	err := os.Chdir(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	err = os.Setenv("GOOS", "linux")
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +31,6 @@ func buildBinary(path string) ([]byte, error) {
 		return nil, err
 	}
 	cmd := exec.Command("go", "build", "-tags", "lambda.norpc", "-o", "bootstrap", filepath.Base(path))
-	cmd.Dir = filepath.Dir(path)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Println("Error building lambda function", string(out))
