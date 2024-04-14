@@ -15,10 +15,10 @@ import (
 func TestPrepareAction_CreateFunction(t *testing.T) {
 	t.Parallel()
 	client := helperDummyLambdaClient(false, nil)
-	handler := "testdata/correct_test_handler.go"
+	handler := "testdata/correct_test_handler/main.go"
 	action, err := glambda.PrepareAction(client, "test", handler, "arn:aws:iam::123456789012:role/lambda-role")
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	got, ok := action.(glambda.CreateAction)
 	if !ok {
@@ -32,10 +32,10 @@ func TestPrepareAction_CreateFunction(t *testing.T) {
 func TestPrepareAction_UpdateFunction(t *testing.T) {
 	t.Parallel()
 	client := helperDummyLambdaClient(true, nil)
-	handler := "testdata/correct_test_handler.go"
+	handler := "testdata/correct_test_handler/main.go"
 	action, err := glambda.PrepareAction(client, "test", handler, "arn:aws:iam::123456789012:role/lambda-role")
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	got, ok := action.(glambda.UpdateAction)
 	if !ok {
@@ -49,16 +49,16 @@ func TestPrepareAction_UpdateFunction(t *testing.T) {
 func TestPrepareAction_ErrorCase(t *testing.T) {
 	t.Parallel()
 	client := helperDummyLambdaClient(false, fmt.Errorf("some client error"))
-	handler := "testdata/correct_test_handler.go"
+	handler := "testdata/correct_test_handler/main.go"
 	_, err := glambda.PrepareAction(client, "test", handler, "arn:aws:iam::123456789012:role/lambda-role")
 	if err == nil {
-		t.Errorf("expected error, got nil")
+		t.Fatal("expected error, got nil")
 	}
 }
 
 func TestValidate_AcceptsCorrectlySetupLambdaSourceFile(t *testing.T) {
 	t.Parallel()
-	handler := "testdata/correct_test_handler.go"
+	handler := "testdata/correct_test_handler/main.go"
 	err := glambda.Validate(handler)
 	if err != nil {
 		t.Error(err)
@@ -100,12 +100,12 @@ func TestValidate_RejectsIncorrectlySetupLambdaSourceFiles(t *testing.T) {
 
 func TestPackage_PackagesLambdaFunction(t *testing.T) {
 	t.Parallel()
-	handler := "testdata/correct_test_handler.go"
+	handler := "testdata/correct_test_handler/main.go"
 	data, err := glambda.Package(handler)
 	if err != nil {
 		t.Error(err)
 	}
-	want, err := os.ReadFile("testdata/correct_test_handler.zip")
+	want, err := os.ReadFile("testdata/correct_test_handler/main.zip")
 	if err != nil {
 		t.Errorf("failed to read in test data, %v", err)
 	}

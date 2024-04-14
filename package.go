@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 )
 
 func Package(path string) ([]byte, error) {
@@ -18,11 +17,7 @@ func Package(path string) ([]byte, error) {
 }
 
 func buildBinary(path string) ([]byte, error) {
-	err := os.Chdir(filepath.Dir(path))
-	if err != nil {
-		return nil, err
-	}
-	err = os.Setenv("GOOS", "linux")
+	err := os.Setenv("GOOS", "linux")
 	if err != nil {
 		return nil, err
 	}
@@ -30,18 +25,20 @@ func buildBinary(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command("go", "build", "-tags", "lambda.norpc", "-o", "bootstrap", filepath.Base(path))
+	tempBootstrap := os.TempDir() + "/bootstrap"
+	//go build -tags lambda.norpc -o bootstrap main.go
+	cmd := exec.Command("go", "build", "-tags", "lambda.norpc", "-o", tempBootstrap, path)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Println("Error building lambda function", string(out))
 		return nil, err
 	}
 
-	data, err := os.ReadFile(filepath.Dir(path) + "/bootstrap")
+	data, err := os.ReadFile(tempBootstrap)
 	if err != nil {
 		return nil, err
 	}
-	_ = os.Remove("bootstrap")
+	_ = os.Remove(tempBootstrap)
 	return data, nil
 }
 
