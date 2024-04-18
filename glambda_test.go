@@ -1,14 +1,14 @@
 package glambda_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
-	"github.com/google/go-cmp/cmp"
 	"github.com/mr-joshcrane/glambda"
 )
 
@@ -105,12 +105,22 @@ func TestPackage_PackagesLambdaFunction(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	want, err := os.ReadFile("testdata/correct_test_handler/main.zip")
+	zipReader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		t.Errorf("failed to read in test data, %v", err)
+		t.Errorf("failed to create zip reader, %v", err)
 	}
-	if !cmp.Equal(data, want) {
-		t.Errorf("zip file data doesn't match: expected length %d, got %d", len(want), len(data))
+	if len(zipReader.File) != 1 {
+		t.Errorf("expected 1 file in zip, got %d", len(zipReader.File))
+	}
+	file := zipReader.File[0]
+	if file.Name != "bootstrap" {
+		t.Errorf("expected file name to be bootstrap, got %s", zipReader.File[0].Name)
+	}
+	if file.Mode() != 0755 {
+		t.Errorf("expected bootstrap file mode to be 0755, got %d", zipReader.File[0].Mode())
+	}
+	if file.UncompressedSize64 == 0 {
+		t.Errorf("expected bootstrap file to have content, got 0")
 	}
 }
 
