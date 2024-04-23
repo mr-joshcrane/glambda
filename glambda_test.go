@@ -87,6 +87,10 @@ func TestValidate_RejectsIncorrectlySetupLambdaSourceFiles(t *testing.T) {
 			description: "invalid go source file",
 			filename:    "testdata/invalid_go_source.go",
 		},
+		{
+			description: "invalid handler signature",
+			filename:    "testdata/invalid_handler_signature.go",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {

@@ -3,6 +3,7 @@ package glambda
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -45,7 +46,37 @@ func (a UpdateAction) Do(c LambdaClient) error {
 	return err
 }
 
-func Deploy(name, path string) error {
+type Options func(*aws.Config) error
+
+func WithExecutionRolePermissions(roleName, policy string) Options {
+	fmt.Println(roleName)
+	return func(cfg *aws.Config) error {
+		c := iam.NewFromConfig(*cfg)
+		_, err := c.PutRolePolicy(context.Background(), &iam.PutRolePolicyInput{
+			RoleName:       aws.String(roleName),
+			PolicyName:     aws.String("glambda_permissions"),
+			PolicyDocument: aws.String(policy),
+		})
+		return err
+	}
+}
+
+func WithLambdaResourcePolicy(lambdaName, identifier, principal, sourceARN, sourceAccount string) Options {
+	return func(cfg *aws.Config) error {
+		c := lambda.NewFromConfig(*cfg)
+		_, err := c.AddPermission(context.Background(), &lambda.AddPermissionInput{
+			Action:        aws.String("lambda:InvokeFunction"),
+			FunctionName:  aws.String(lambdaName),
+			StatementId:   aws.String(identifier),
+			Principal:     aws.String(principal),
+			SourceArn:     aws.String(sourceARN),
+			SourceAccount: aws.String(sourceAccount),
+		})
+		return err
+	}
+}
+
+func Deploy(name, path string, opts ...Options) error {
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		return err
@@ -60,7 +91,17 @@ func Deploy(name, path string) error {
 	if err != nil {
 		return err
 	}
-	return action.Do(c)
+	err = action.Do(c)
+	if err != nil {
+		return err
+	}
+	for _, opt := range opts {
+		err := opt(&cfg)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func PrepareExecutionRole(cfg aws.Config) (string, error) {
@@ -86,6 +127,7 @@ func PrepareExecutionRole(cfg aws.Config) (string, error) {
 		PolicyArn: aws.String("arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"),
 		RoleName:  aws.String("glambda_execution_role"),
 	})
+
 	return *resp.Role.Arn, err
 }
 
