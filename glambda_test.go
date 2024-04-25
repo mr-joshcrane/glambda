@@ -12,6 +12,17 @@ import (
 	"github.com/mr-joshcrane/glambda"
 )
 
+func TestNewLambda(t *testing.T) {
+	t.Parallel()
+	l := glambda.NewLambda("test", "testdata/correct_test_handler/main.go")
+	if l.Name != "test" {
+		t.Errorf("expected name to be test, got %s", l.Name)
+	}
+	if l.HandlerPath != "testdata/correct_test_handler/main.go" {
+		t.Errorf("expected handler path to be testdata/correct_test_handler/main.go, got %s", l.HandlerPath)
+	}
+}
+
 func TestPrepareAction_CreateFunction(t *testing.T) {
 	t.Parallel()
 	client := helperDummyLambdaClient(false, nil)

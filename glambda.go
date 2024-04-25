@@ -14,6 +14,27 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 )
 
+type Lambda struct {
+	Guid           string
+	Name           string
+	HandlerPath    string
+	ExecutionRole  string
+	ResourcePolicy string
+}
+
+type LambdaOptions func(l Lambda) Lambda
+
+func NewLambda(name, handlerPath string, opts ...LambdaOptions) Lambda {
+	l := Lambda{
+		Name:        name,
+		HandlerPath: handlerPath,
+	}
+	for _, opt := range opts {
+		l = opt(l)
+	}
+	return l
+}
+
 type LambdaClient interface {
 	CreateFunction(ctx context.Context, params *lambda.CreateFunctionInput, optFns ...func(*lambda.Options)) (*lambda.CreateFunctionOutput, error)
 	UpdateFunctionCode(ctx context.Context, params *lambda.UpdateFunctionCodeInput, optFns ...func(*lambda.Options)) (*lambda.UpdateFunctionCodeOutput, error)
@@ -77,7 +98,7 @@ func WithLambdaResourcePolicy(lambdaName, identifier, principal, sourceARN, sour
 	}
 }
 
-func Deploy(name, path string, opts ...Options) error {
+func (l Lambda) Deploy(opts ...Options) error {
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		return err
@@ -88,7 +109,7 @@ func Deploy(name, path string, opts ...Options) error {
 		return err
 	}
 	c := lambda.NewFromConfig(cfg)
-	action, err := PrepareAction(c, name, path, roleARN)
+	action, err := PrepareAction(c, l.Name, l.HandlerPath, roleARN)
 	if err != nil {
 		return err
 	}
@@ -102,7 +123,7 @@ func Deploy(name, path string, opts ...Options) error {
 			return err
 		}
 	}
-	return invokeUpdatedLambda(c, name)
+	return invokeUpdatedLambda(c, l.Name)
 }
 
 func PrepareExecutionRole(cfg aws.Config) (string, error) {
