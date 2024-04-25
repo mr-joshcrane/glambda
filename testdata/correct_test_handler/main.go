@@ -8,10 +8,10 @@ import (
 )
 
 func main() {
-	lambda.Start(handler)
+	lambda.StartHandlerFunc(handler)
 }
 
-func handler(ctx context.Context, s string) (string, error) {
+func handler(ctx context.Context, s any) (any, error) {
 	fmt.Println("Hello, World!")
 	return "Hello, World!", nil
 }

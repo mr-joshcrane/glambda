@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -101,7 +102,7 @@ func Deploy(name, path string, opts ...Options) error {
 			return err
 		}
 	}
-	return nil
+	return invokeUpdatedLambda(c, name)
 }
 
 func PrepareExecutionRole(cfg aws.Config) (string, error) {
@@ -190,5 +191,32 @@ func updateLambda(name string, pkg []byte) lambda.UpdateFunctionCodeInput {
 	return lambda.UpdateFunctionCodeInput{
 		FunctionName: aws.String(name),
 		ZipFile:      pkg,
+		Publish:      true,
 	}
+}
+
+func invokeUpdatedLambda(c *lambda.Client, name string) error {
+	var version string
+	for {
+		versionOutput, err := c.PublishVersion(context.Background(), &lambda.PublishVersionInput{
+			FunctionName: aws.String(name),
+		})
+		if err == nil {
+			version = *versionOutput.Version
+			break
+		}
+		time.Sleep(3 * time.Second)
+		fmt.Println("retrying")
+	}
+
+	resp, err := c.Invoke(context.Background(), &lambda.InvokeInput{
+		FunctionName: aws.String(name),
+		Qualifier:    aws.String(version),
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(resp.Payload))
+	fmt.Println(resp.StatusCode)
+	return nil
 }

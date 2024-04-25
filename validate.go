@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"strings"
 )
 
 func Validate(path string) error {
@@ -51,7 +52,7 @@ func containsLambdaStartFunctionCall(node ast.Node) bool {
 		case *ast.CallExpr:
 			switch y := x.Fun.(type) {
 			case *ast.SelectorExpr:
-				if y.Sel.Name == "Start" {
+				if strings.HasPrefix(y.Sel.Name, "Start") {
 					found = true
 					return false
 				}
