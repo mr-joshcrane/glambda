@@ -18,47 +18,46 @@ func Validate(path string) error {
 	if err != nil {
 		return fmt.Errorf("failure in parsing %s: %w", path, err)
 	}
-	dcl, mainFound := containsMain(node)
+	mainFound := containsMain(node)
 	if !mainFound {
 		return fmt.Errorf("main function not found in packaged function")
 	}
-	callsStart := containsLambdaStartFunctionCall(*dcl)
+	callsStart := containsLambdaStartFunctionCall(node)
 	if !callsStart {
 		return fmt.Errorf("main function does not call lambda.Start(handler)")
 	}
 	return nil
 }
 
-func containsMain(node ast.Node) (*ast.FuncDecl, bool) {
-	var mainFunc *ast.FuncDecl
+func containsMain(node ast.Node) bool {
 	var found bool
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.FuncDecl:
 			if x.Name.Name == "main" {
-				mainFunc = x
 				found = true
+				return false
 			}
 		}
-		return !found
+		return true
 	})
-	return mainFunc, found
+	return found
 }
 
-func containsLambdaStartFunctionCall(dcl ast.FuncDecl) bool {
-	for _, stmt := range dcl.Body.List {
-		switch x := stmt.(type) {
-		case *ast.ExprStmt:
-			switch y := x.X.(type) {
-			case *ast.CallExpr:
-				switch z := y.Fun.(type) {
-				case *ast.SelectorExpr:
-					if z.Sel.Name == "Start" {
-						return true
-					}
+func containsLambdaStartFunctionCall(node ast.Node) bool {
+	var found bool
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.CallExpr:
+			switch y := x.Fun.(type) {
+			case *ast.SelectorExpr:
+				if y.Sel.Name == "Start" {
+					found = true
+					return false
 				}
 			}
 		}
-	}
-	return false
+		return true
+	})
+	return found
 }
