@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/google/go-cmp/cmp"
 	"github.com/mr-joshcrane/glambda"
 )
 
@@ -20,6 +21,40 @@ func TestNewLambda(t *testing.T) {
 	}
 	if l.HandlerPath != "testdata/correct_test_handler/main.go" {
 		t.Errorf("expected handler path to be testdata/correct_test_handler/main.go, got %s", l.HandlerPath)
+	}
+	if !cmp.Equal(l.ExecutionRole, glambda.ExecutionRole{}) {
+		t.Errorf("expected execution role to be empty, got %v", l.ExecutionRole)
+	}
+	if !cmp.Equal(l.ResourcePolicy, glambda.ResourcePolicy{}) {
+		t.Errorf("expected resource policy to be empty, got %v", l.ResourcePolicy)
+	}
+}
+
+func TestNewLambda_WithExecutionRole(t *testing.T) {
+	t.Parallel()
+	execRole := glambda.ExecutionRole{
+		RoleName: "arn:aws:iam::123456789012:role/lambda-role",
+	}
+	l := glambda.NewLambda("test", "testdata/correct_test_handler/main.go", glambda.WithExecutionRole(execRole))
+	if !cmp.Equal(l.ExecutionRole, execRole) {
+		t.Error(cmp.Diff(l.ExecutionRole, execRole))
+	}
+}
+
+func TestNewLambda_WithResourcePolicy(t *testing.T) {
+	t.Parallel()
+	resourcePolicy := glambda.ResourcePolicy{
+		Sid:       "AllowExecutionFromS3",
+		Effect:    "Allow",
+		Principal: "s3.amazonaws.com",
+		Action:    "lambda:InvokeFunction",
+		Resource:  "arn:aws:lambda:us-west-2:123456789012:function:test",
+		Condition: "",
+	}
+	l := glambda.NewLambda("test", "testdata/correct_test_handler/main.go", glambda.WithResourcePolicy(resourcePolicy))
+
+	if !cmp.Equal(l.ResourcePolicy, resourcePolicy) {
+		t.Error(cmp.Diff(l.ResourcePolicy, resourcePolicy))
 	}
 }
 

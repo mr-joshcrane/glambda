@@ -15,11 +15,23 @@ import (
 )
 
 type Lambda struct {
-	Guid           string
 	Name           string
 	HandlerPath    string
-	ExecutionRole  string
-	ResourcePolicy string
+	ExecutionRole  ExecutionRole
+	ResourcePolicy ResourcePolicy
+}
+
+type ExecutionRole struct {
+	RoleName string
+}
+
+type ResourcePolicy struct {
+	Sid       string
+	Effect    string
+	Principal string
+	Action    string
+	Resource  string
+	Condition string
 }
 
 type LambdaOptions func(l Lambda) Lambda
@@ -33,6 +45,20 @@ func NewLambda(name, handlerPath string, opts ...LambdaOptions) Lambda {
 		l = opt(l)
 	}
 	return l
+}
+
+func WithExecutionRole(role ExecutionRole) LambdaOptions {
+	return func(l Lambda) Lambda {
+		l.ExecutionRole = role
+		return l
+	}
+}
+
+func WithResourcePolicy(policy ResourcePolicy) LambdaOptions {
+	return func(l Lambda) Lambda {
+		l.ResourcePolicy = policy
+		return l
+	}
 }
 
 type LambdaClient interface {
@@ -68,37 +94,34 @@ func (a UpdateAction) Do(c LambdaClient) error {
 	return err
 }
 
-type Options func(*aws.Config) error
+// func WithExecutionRolePermissions(roleName, policy string) LambdaOptions {
+// 	return func(cfg *aws.Config) error {
+// 		c := iam.NewFromConfig(*cfg)
+// 		_, err := c.PutRolePolicy(context.Background(), &iam.PutRolePolicyInput{
+// 			RoleName:       aws.String(roleName),
+// 			PolicyName:     aws.String("glambda_permissions"),
+// 			PolicyDocument: aws.String(policy),
+// 		})
+// 		return err
+// 	}
+// }
+//
+// func WithLambdaResourcePolicy(lambdaName, identifier, principal, sourceARN, sourceAccount string) Options {
+// 	return func(cfg *aws.Config) error {
+// 		c := lambda.NewFromConfig(*cfg)
+// 		_, err := c.AddPermission(context.Background(), &lambda.AddPermissionInput{
+// 			Action:        aws.String("lambda:InvokeFunction"),
+// 			FunctionName:  aws.String(lambdaName),
+// 			StatementId:   aws.String(identifier),
+// 			Principal:     aws.String(principal),
+// 			SourceArn:     aws.String(sourceARN),
+// 			SourceAccount: aws.String(sourceAccount),
+// 		})
+// 		return err
+// 	}
+// }
 
-func WithExecutionRolePermissions(roleName, policy string) Options {
-	fmt.Println(roleName)
-	return func(cfg *aws.Config) error {
-		c := iam.NewFromConfig(*cfg)
-		_, err := c.PutRolePolicy(context.Background(), &iam.PutRolePolicyInput{
-			RoleName:       aws.String(roleName),
-			PolicyName:     aws.String("glambda_permissions"),
-			PolicyDocument: aws.String(policy),
-		})
-		return err
-	}
-}
-
-func WithLambdaResourcePolicy(lambdaName, identifier, principal, sourceARN, sourceAccount string) Options {
-	return func(cfg *aws.Config) error {
-		c := lambda.NewFromConfig(*cfg)
-		_, err := c.AddPermission(context.Background(), &lambda.AddPermissionInput{
-			Action:        aws.String("lambda:InvokeFunction"),
-			FunctionName:  aws.String(lambdaName),
-			StatementId:   aws.String(identifier),
-			Principal:     aws.String(principal),
-			SourceArn:     aws.String(sourceARN),
-			SourceAccount: aws.String(sourceAccount),
-		})
-		return err
-	}
-}
-
-func (l Lambda) Deploy(opts ...Options) error {
+func (l Lambda) Deploy() error {
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		return err
@@ -116,12 +139,6 @@ func (l Lambda) Deploy(opts ...Options) error {
 	err = action.Do(c)
 	if err != nil {
 		return err
-	}
-	for _, opt := range opts {
-		err := opt(&cfg)
-		if err != nil {
-			return err
-		}
 	}
 	return invokeUpdatedLambda(c, l.Name)
 }
