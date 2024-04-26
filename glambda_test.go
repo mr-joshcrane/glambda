@@ -25,8 +25,11 @@ func TestNewLambda(t *testing.T) {
 	if l.HandlerPath != "testdata/correct_test_handler/main.go" {
 		t.Errorf("expected handler path to be testdata/correct_test_handler/main.go, got %s", l.HandlerPath)
 	}
-	if !cmp.Equal(l.ExecutionRole, glambda.ExecutionRole{}) {
-		t.Errorf("expected execution role to be empty, got %v", l.ExecutionRole)
+	if !cmp.Equal(l.ExecutionRole, glambda.ExecutionRole{
+		RoleName:                 "glambda_exec_role_test",
+		AssumeRolePolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`,
+	}) {
+		t.Errorf("expected execution role to be default, got %v", l.ExecutionRole)
 	}
 	if !cmp.Equal(l.ResourcePolicy, glambda.ResourcePolicy{}) {
 		t.Errorf("expected resource policy to be empty, got %v", l.ResourcePolicy)

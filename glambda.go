@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -19,6 +20,22 @@ type Lambda struct {
 	HandlerPath    string
 	ExecutionRole  ExecutionRole
 	ResourcePolicy ResourcePolicy
+}
+type LambdaOptions func(l Lambda) Lambda
+
+func NewLambda(name, handlerPath string, opts ...LambdaOptions) Lambda {
+	l := Lambda{
+		Name:        name,
+		HandlerPath: handlerPath,
+		ExecutionRole: ExecutionRole{
+			RoleName:                 "glambda_exec_role_" + strings.ToLower(name),
+			AssumeRolePolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`,
+		},
+	}
+	for _, opt := range opts {
+		l = opt(l)
+	}
+	return l
 }
 
 type ExecutionRole struct {
@@ -68,19 +85,6 @@ func (r ResourcePolicy) CreateCommand(lambdaName string) lambda.AddPermissionInp
 		SourceArn:     aws.String(r.Resource),
 		SourceAccount: aws.String(r.Condition),
 	}
-}
-
-type LambdaOptions func(l Lambda) Lambda
-
-func NewLambda(name, handlerPath string, opts ...LambdaOptions) Lambda {
-	l := Lambda{
-		Name:        name,
-		HandlerPath: handlerPath,
-	}
-	for _, opt := range opts {
-		l = opt(l)
-	}
-	return l
 }
 
 func WithExecutionRole(role ExecutionRole) LambdaOptions {
