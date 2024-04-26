@@ -22,7 +22,32 @@ type Lambda struct {
 }
 
 type ExecutionRole struct {
-	RoleName string
+	RoleName                 string
+	AssumeRolePolicyDocument string
+	ManagedPolicies          []string
+	InLinePolicy             string
+}
+
+func (e ExecutionRole) CreateRoleCommand() iam.CreateRoleInput {
+	return iam.CreateRoleInput{
+		RoleName:                 aws.String(e.RoleName),
+		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+	}
+}
+
+func (e ExecutionRole) AttachManagedPolicyCommand(policyARN string) iam.AttachRolePolicyInput {
+	return iam.AttachRolePolicyInput{
+		PolicyArn: aws.String(policyARN),
+		RoleName:  aws.String(e.RoleName),
+	}
+}
+
+func (e ExecutionRole) AttachInLinePolicyCommand(policyName string) iam.PutRolePolicyInput {
+	return iam.PutRolePolicyInput{
+		PolicyName:     aws.String(policyName),
+		PolicyDocument: aws.String(e.InLinePolicy),
+		RoleName:       aws.String(e.RoleName),
+	}
 }
 
 type ResourcePolicy struct {
@@ -32,6 +57,17 @@ type ResourcePolicy struct {
 	Action    string
 	Resource  string
 	Condition string
+}
+
+func (r ResourcePolicy) CreateCommand(lambdaName string) lambda.AddPermissionInput {
+	return lambda.AddPermissionInput{
+		Action:        aws.String(r.Action),
+		FunctionName:  aws.String(lambdaName),
+		StatementId:   aws.String(r.Sid),
+		Principal:     aws.String(r.Principal),
+		SourceArn:     aws.String(r.Resource),
+		SourceAccount: aws.String(r.Condition),
+	}
 }
 
 type LambdaOptions func(l Lambda) Lambda
@@ -93,33 +129,6 @@ func (a UpdateAction) Do(c LambdaClient) error {
 	_, err := c.UpdateFunctionCode(context.Background(), &cmd)
 	return err
 }
-
-// func WithExecutionRolePermissions(roleName, policy string) LambdaOptions {
-// 	return func(cfg *aws.Config) error {
-// 		c := iam.NewFromConfig(*cfg)
-// 		_, err := c.PutRolePolicy(context.Background(), &iam.PutRolePolicyInput{
-// 			RoleName:       aws.String(roleName),
-// 			PolicyName:     aws.String("glambda_permissions"),
-// 			PolicyDocument: aws.String(policy),
-// 		})
-// 		return err
-// 	}
-// }
-//
-// func WithLambdaResourcePolicy(lambdaName, identifier, principal, sourceARN, sourceAccount string) Options {
-// 	return func(cfg *aws.Config) error {
-// 		c := lambda.NewFromConfig(*cfg)
-// 		_, err := c.AddPermission(context.Background(), &lambda.AddPermissionInput{
-// 			Action:        aws.String("lambda:InvokeFunction"),
-// 			FunctionName:  aws.String(lambdaName),
-// 			StatementId:   aws.String(identifier),
-// 			Principal:     aws.String(principal),
-// 			SourceArn:     aws.String(sourceARN),
-// 			SourceAccount: aws.String(sourceAccount),
-// 		})
-// 		return err
-// 	}
-// }
 
 func (l Lambda) Deploy() error {
 	cfg, err := config.LoadDefaultConfig(context.Background())
