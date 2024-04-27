@@ -38,29 +38,32 @@ func TestNewLambda(t *testing.T) {
 
 func TestNewLambda_WithExecutionRole(t *testing.T) {
 	t.Parallel()
-	execRole := glambda.ExecutionRole{
-		RoleName: "arn:aws:iam::123456789012:role/lambda-role",
+	l := glambda.NewLambda(
+		"test", "testdata/correct_test_handler/main.go", glambda.WithExecutionRole("lambda-role"),
+	)
+	want := glambda.ExecutionRole{
+		RoleName:                 "lambda-role",
+		AssumeRolePolicyDocument: glambda.DefaultAssumeRolePolicy,
+		ManagedPolicies:          []string{glambda.AWSLambdaBasicExecutionRole},
 	}
-	l := glambda.NewLambda("test", "testdata/correct_test_handler/main.go", glambda.WithExecutionRole(execRole))
-	if !cmp.Equal(l.ExecutionRole, execRole) {
-		t.Error(cmp.Diff(l.ExecutionRole, execRole))
+	if !cmp.Equal(l.ExecutionRole, want) {
+		t.Error(cmp.Diff(l.ExecutionRole, want))
 	}
 }
 
 func TestNewLambda_WithResourcePolicy(t *testing.T) {
 	t.Parallel()
-	resourcePolicy := glambda.ResourcePolicy{
-		Sid:       "AllowExecutionFromS3",
+	want := glambda.ResourcePolicy{
 		Effect:    "Allow",
 		Principal: "s3.amazonaws.com",
 		Action:    "lambda:InvokeFunction",
-		Resource:  "arn:aws:lambda:us-west-2:123456789012:function:test",
-		Condition: "",
+		Resource:  "*",
+		Condition: glambda.ThisAWSAccountCondition,
 	}
-	l := glambda.NewLambda("test", "testdata/correct_test_handler/main.go", glambda.WithResourcePolicy(resourcePolicy))
+	l := glambda.NewLambda("test", "testdata/correct_test_handler/main.go", glambda.WithResourcePolicy("s3.amazonaws.com"))
 
-	if !cmp.Equal(l.ResourcePolicy, resourcePolicy) {
-		t.Error(cmp.Diff(l.ResourcePolicy, resourcePolicy))
+	if !cmp.Equal(l.ResourcePolicy, want) {
+		t.Error(cmp.Diff(l.ResourcePolicy, want))
 	}
 }
 
@@ -126,16 +129,14 @@ func TestResourcePolicy_ToAddPermissionCommand(t *testing.T) {
 		Principal: "s3.amazonaws.com",
 		Action:    "lambda:InvokeFunction",
 		Resource:  "arn:aws:lambda:us-west-2:123456789012:function:test",
-		Condition: "",
 	}
-	rpCmd := resourcePolicy.CreateCommand("testName")
+	rpCmd := resourcePolicy.CreateCommand("testName", "123456789012")
 	want := lambda.AddPermissionInput{
 		Action:        &resourcePolicy.Action,
 		FunctionName:  aws.String("testName"),
 		StatementId:   &resourcePolicy.Sid,
 		Principal:     &resourcePolicy.Principal,
-		SourceArn:     &resourcePolicy.Resource,
-		SourceAccount: &resourcePolicy.Condition,
+		SourceAccount: aws.String("123456789012"),
 	}
 	ignore := cmpopts.IgnoreUnexported(lambda.AddPermissionInput{})
 	if !cmp.Equal(rpCmd, want, ignore) {

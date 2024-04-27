@@ -13,6 +13,13 @@ import (
 	iTypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/google/uuid"
+)
+
+var (
+	DefaultAssumeRolePolicy     = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+	AWSLambdaBasicExecutionRole = `arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole`
+	ThisAWSAccountCondition     = `"Condition":{"StringEquals":{"aws:PrincipalAccount": "${aws:accountId}"}}"`
 )
 
 type Lambda struct {
@@ -29,7 +36,7 @@ func NewLambda(name, handlerPath string, opts ...LambdaOptions) Lambda {
 		HandlerPath: handlerPath,
 		ExecutionRole: ExecutionRole{
 			RoleName:                 "glambda_exec_role_" + strings.ToLower(name),
-			AssumeRolePolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`,
+			AssumeRolePolicyDocument: DefaultAssumeRolePolicy,
 		},
 	}
 	for _, opt := range opts {
@@ -48,7 +55,7 @@ type ExecutionRole struct {
 func (e ExecutionRole) CreateRoleCommand() iam.CreateRoleInput {
 	return iam.CreateRoleInput{
 		RoleName:                 aws.String(e.RoleName),
-		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+		AssumeRolePolicyDocument: aws.String(e.AssumeRolePolicyDocument),
 	}
 }
 
@@ -76,27 +83,73 @@ type ResourcePolicy struct {
 	Condition string
 }
 
-func (r ResourcePolicy) CreateCommand(lambdaName string) lambda.AddPermissionInput {
+func (r ResourcePolicy) CreateCommand(lambdaName, accountID string) lambda.AddPermissionInput {
+	if r.Sid == "" {
+		uuid := uuid.New().String()[0:8]
+		r.Sid = "glambda_" + uuid
+	}
 	return lambda.AddPermissionInput{
 		Action:        aws.String(r.Action),
 		FunctionName:  aws.String(lambdaName),
 		StatementId:   aws.String(r.Sid),
 		Principal:     aws.String(r.Principal),
-		SourceArn:     aws.String(r.Resource),
-		SourceAccount: aws.String(r.Condition),
+		SourceAccount: aws.String(accountID),
 	}
 }
 
-func WithExecutionRole(role ExecutionRole) LambdaOptions {
+func WithExecutionRole(name string, opts ...RoleOptions) LambdaOptions {
+	executionRole := ExecutionRole{
+		RoleName:                 name,
+		AssumeRolePolicyDocument: DefaultAssumeRolePolicy,
+		ManagedPolicies: []string{
+			"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+		},
+	}
+	for _, opt := range opts {
+		opt(&executionRole)
+	}
 	return func(l Lambda) Lambda {
-		l.ExecutionRole = role
+		l.ExecutionRole = executionRole
 		return l
 	}
 }
 
-func WithResourcePolicy(policy ResourcePolicy) LambdaOptions {
+type RoleOptions func(role *ExecutionRole)
+
+func expandManagedPolicies(policyARNs []string) []string {
+	var expandedPolicyArns []string
+	for _, policyARN := range policyARNs {
+		if strings.HasPrefix(policyARN, "arn:") {
+			expandedPolicyArns = append(expandedPolicyArns, policyARN)
+		} else {
+			expandedPolicyArns = append(expandedPolicyArns, "arn:aws:iam::aws:policy/"+policyARN)
+		}
+	}
+	return expandedPolicyArns
+}
+
+func WithManagedPolicies(policyARNs ...string) RoleOptions {
+	return func(role *ExecutionRole) {
+		role.ManagedPolicies = append(role.ManagedPolicies, expandManagedPolicies(policyARNs)...)
+	}
+}
+
+func WithInlinePolicy(policy string) RoleOptions {
+	return func(role *ExecutionRole) {
+		role.InLinePolicy = policy
+	}
+}
+
+func WithResourcePolicy(serviceName string) LambdaOptions {
+	resourcePolicy := ResourcePolicy{
+		Effect:    "Allow",
+		Principal: serviceName,
+		Action:    "lambda:InvokeFunction",
+		Resource:  "*",
+		Condition: ThisAWSAccountCondition,
+	}
 	return func(l Lambda) Lambda {
-		l.ResourcePolicy = policy
+		l.ResourcePolicy = resourcePolicy
 		return l
 	}
 }
@@ -118,8 +171,22 @@ type CreateAction struct {
 }
 
 func (a CreateAction) Do(c LambdaClient) error {
+	var err error
 	cmd := createLambda(a.Name, a.Role, a.Pkg)
-	_, err := c.CreateFunction(context.Background(), &cmd)
+	for i := 0; i < 3; i++ {
+		_, err = c.CreateFunction(context.Background(), &cmd)
+		if err == nil {
+			fmt.Printf("Lambda function %s created\n", a.Name)
+			return nil
+		}
+		if errors.Is(err, &types.InvalidParameterValueException{}) {
+			invalidParamErr := err.(*types.InvalidParameterValueException)
+			if !strings.Contains(*invalidParamErr.Message, "role defined for the function cannot be assumed by Lambda") {
+				return err
+			}
+			time.Sleep(3 * time.Second)
+		}
+	}
 	return err
 }
 
@@ -131,6 +198,9 @@ type UpdateAction struct {
 func (a UpdateAction) Do(c LambdaClient) error {
 	cmd := updateLambda(a.Name, a.Pkg)
 	_, err := c.UpdateFunctionCode(context.Background(), &cmd)
+	if err == nil {
+		fmt.Printf("Lambda function %s updated\n", a.Name)
+	}
 	return err
 }
 
@@ -139,11 +209,11 @@ func (l Lambda) Deploy() error {
 	if err != nil {
 		return err
 	}
-
-	roleARN, err := PrepareExecutionRole(cfg)
+	roleARN, err := l.PrepareExecutionRole(cfg)
 	if err != nil {
 		return err
 	}
+	fmt.Println("Created execution role: ", roleARN)
 	c := lambda.NewFromConfig(cfg)
 	action, err := PrepareAction(c, l.Name, l.HandlerPath, roleARN)
 	if err != nil {
@@ -153,33 +223,58 @@ func (l Lambda) Deploy() error {
 	if err != nil {
 		return err
 	}
+	accountID := strings.Split(roleARN, ":")[4]
+	resourcePolicy := l.ResourcePolicy.CreateCommand(l.Name, accountID)
+	_, err = c.AddPermission(context.Background(), &resourcePolicy)
+	if err != nil {
+		return err
+	}
 	return invokeUpdatedLambda(c, l.Name)
 }
 
-func PrepareExecutionRole(cfg aws.Config) (string, error) {
+func (l Lambda) PrepareExecutionRole(cfg aws.Config) (string, error) {
 	c := iam.NewFromConfig(cfg)
 	resp, err := c.CreateRole(context.Background(), &iam.CreateRoleInput{
-		RoleName:                 aws.String("glambda_execution_role"),
-		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+		RoleName:                 aws.String(l.ExecutionRole.RoleName),
+		AssumeRolePolicyDocument: aws.String(l.ExecutionRole.AssumeRolePolicyDocument),
 	})
 	if err != nil {
 		var i *iTypes.EntityAlreadyExistsException
 		if errors.As(err, &i) {
 			resp, err := c.GetRole(context.Background(), &iam.GetRoleInput{
-				RoleName: aws.String("glambda_execution_role"),
+				RoleName: aws.String(l.ExecutionRole.RoleName),
 			})
 			if err != nil {
 				return "", err
 			}
 			return *resp.Role.Arn, nil
 		}
-		return "", err
 	}
 	_, err = c.AttachRolePolicy(context.Background(), &iam.AttachRolePolicyInput{
 		PolicyArn: aws.String("arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"),
-		RoleName:  aws.String("glambda_execution_role"),
+		RoleName:  aws.String(l.ExecutionRole.RoleName),
 	})
-
+	for _, managedPolicy := range l.ExecutionRole.ManagedPolicies {
+		_, err = c.AttachRolePolicy(context.Background(), &iam.AttachRolePolicyInput{
+			PolicyArn: aws.String(managedPolicy),
+			RoleName:  aws.String(l.ExecutionRole.RoleName),
+		})
+		if err != nil {
+			return "", err
+		}
+	}
+	uuid := uuid.New().String()[0:8]
+	guid := strings.ReplaceAll(uuid, "-", "")
+	if l.ExecutionRole.InLinePolicy != "" {
+		_, err = c.PutRolePolicy(context.Background(), &iam.PutRolePolicyInput{
+			PolicyName:     aws.String("glambda_inline_policy_" + guid[:8]),
+			PolicyDocument: aws.String(l.ExecutionRole.InLinePolicy),
+			RoleName:       aws.String(l.ExecutionRole.RoleName),
+		})
+		if err != nil {
+			return "", err
+		}
+	}
 	return *resp.Role.Arn, err
 }
 
@@ -248,16 +343,21 @@ func updateLambda(name string, pkg []byte) lambda.UpdateFunctionCodeInput {
 
 func invokeUpdatedLambda(c *lambda.Client, name string) error {
 	var version string
-	for {
+	retryLimit := 10
+	fmt.Println("Waiting for lambda to become eventually consistent before invoking")
+	for i := 0; true; i++ {
 		versionOutput, err := c.PublishVersion(context.Background(), &lambda.PublishVersionInput{
 			FunctionName: aws.String(name),
 		})
 		if err == nil {
 			version = *versionOutput.Version
+			fmt.Printf("Lambda is consistent! Lambda version published: %s\n", version)
 			break
 		}
 		time.Sleep(3 * time.Second)
-		fmt.Println("retrying")
+		if i == retryLimit {
+			return fmt.Errorf("waited for lambda become consistent, but didn't after %d retries, %w", retryLimit, err)
+		}
 	}
 
 	resp, err := c.Invoke(context.Background(), &lambda.InvokeInput{
@@ -267,7 +367,19 @@ func invokeUpdatedLambda(c *lambda.Client, name string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(resp.Payload))
+	fmt.Println("Invocation result:")
+	if resp.FunctionError != nil {
+		fmt.Println("Error:")
+		fmt.Println(*resp.FunctionError)
+	}
+	if resp.Payload != nil {
+		fmt.Println("Payload:")
+		fmt.Println(string(resp.Payload))
+	}
+	if resp.LogResult != nil {
+		fmt.Println("Logs:")
+		fmt.Println(string(*resp.LogResult))
+	}
 	fmt.Println(resp.StatusCode)
 	return nil
 }
