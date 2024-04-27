@@ -1,6 +1,6 @@
 module github.com/mr-joshcrane/glambda
 
-go 1.21.7
+go 1.22
 
 require (
 	github.com/aws/aws-lambda-go v1.47.0
