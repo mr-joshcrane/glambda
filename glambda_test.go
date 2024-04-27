@@ -7,10 +7,142 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/mr-joshcrane/glambda"
 )
+
+func TestNewLambda(t *testing.T) {
+	t.Parallel()
+	l := glambda.NewLambda("test", "testdata/correct_test_handler/main.go")
+	if l.Name != "test" {
+		t.Errorf("expected name to be test, got %s", l.Name)
+	}
+	if l.HandlerPath != "testdata/correct_test_handler/main.go" {
+		t.Errorf("expected handler path to be testdata/correct_test_handler/main.go, got %s", l.HandlerPath)
+	}
+	if !cmp.Equal(l.ExecutionRole, glambda.ExecutionRole{
+		RoleName:                 "glambda_exec_role_test",
+		AssumeRolePolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`,
+	}) {
+		t.Errorf("expected execution role to be default, got %v", l.ExecutionRole)
+	}
+	if !cmp.Equal(l.ResourcePolicy, glambda.ResourcePolicy{}) {
+		t.Errorf("expected resource policy to be empty, got %v", l.ResourcePolicy)
+	}
+}
+
+func TestNewLambda_WithExecutionRole(t *testing.T) {
+	t.Parallel()
+	l := glambda.NewLambda(
+		"test", "testdata/correct_test_handler/main.go", glambda.WithExecutionRole("lambda-role"),
+	)
+	want := glambda.ExecutionRole{
+		RoleName:                 "lambda-role",
+		AssumeRolePolicyDocument: glambda.DefaultAssumeRolePolicy,
+		ManagedPolicies:          []string{glambda.AWSLambdaBasicExecutionRole},
+	}
+	if !cmp.Equal(l.ExecutionRole, want) {
+		t.Error(cmp.Diff(l.ExecutionRole, want))
+	}
+}
+
+func TestNewLambda_WithResourcePolicy(t *testing.T) {
+	t.Parallel()
+	want := glambda.ResourcePolicy{
+		Effect:    "Allow",
+		Principal: "s3.amazonaws.com",
+		Action:    "lambda:InvokeFunction",
+		Resource:  "*",
+		Condition: glambda.ThisAWSAccountCondition,
+	}
+	l := glambda.NewLambda("test", "testdata/correct_test_handler/main.go", glambda.WithResourcePolicy("s3.amazonaws.com"))
+
+	if !cmp.Equal(l.ResourcePolicy, want) {
+		t.Error(cmp.Diff(l.ResourcePolicy, want))
+	}
+}
+
+func TestExecutionRole_CreateRoleCommand(t *testing.T) {
+	t.Parallel()
+	assumePolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+	execRole := glambda.ExecutionRole{
+		RoleName:                 "testRole",
+		AssumeRolePolicyDocument: assumePolicy,
+	}
+	roleCmd := execRole.CreateRoleCommand()
+	want := iam.CreateRoleInput{
+		RoleName:                 aws.String("testRole"),
+		AssumeRolePolicyDocument: aws.String(assumePolicy),
+	}
+	ignore := cmpopts.IgnoreUnexported(iam.CreateRoleInput{})
+	if !cmp.Equal(roleCmd, want, ignore) {
+		t.Error(cmp.Diff(roleCmd, want, ignore))
+	}
+}
+
+func TestExecutionRole_AttachManagedPolicyCommand(t *testing.T) {
+	t.Parallel()
+	execRole := glambda.ExecutionRole{
+		RoleName: "testRole",
+	}
+	policyARN := "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+	attachCmd := execRole.AttachManagedPolicyCommand(policyARN)
+	want := iam.AttachRolePolicyInput{
+		PolicyArn: aws.String(policyARN),
+		RoleName:  aws.String("testRole"),
+	}
+	ignore := cmpopts.IgnoreUnexported(iam.AttachRolePolicyInput{})
+	if !cmp.Equal(attachCmd, want, ignore) {
+		t.Error(cmp.Diff(attachCmd, want, ignore))
+	}
+}
+
+func TestExecutionRole_AttachInLinePolicyCommand(t *testing.T) {
+	t.Parallel()
+	inlinePolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"logs:CreateLogGroup","Resource":"arn:aws:logs:us-west-2:123456789012:*"},{"Effect":"Allow","Action":"logs:CreateLogStream","Resource":"arn:aws:logs:us-west-2:123456789012:log-group:/aws/lambda/test:*"}]}`
+	execRole := glambda.ExecutionRole{
+		RoleName:     "testRoleName",
+		InLinePolicy: inlinePolicy,
+	}
+	inlineCmd := execRole.AttachInLinePolicyCommand("testPolicyName")
+	want := iam.PutRolePolicyInput{
+		PolicyName:     aws.String("testPolicyName"),
+		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"logs:CreateLogGroup","Resource":"arn:aws:logs:us-west-2:123456789012:*"},{"Effect":"Allow","Action":"logs:CreateLogStream","Resource":"arn:aws:logs:us-west-2:123456789012:log-group:/aws/lambda/test:*"}]}`),
+		RoleName:       aws.String("testRoleName"),
+	}
+	ignore := cmpopts.IgnoreUnexported(iam.PutRolePolicyInput{})
+	if !cmp.Equal(inlineCmd, want, ignore) {
+		t.Error(cmp.Diff(inlineCmd, want, ignore))
+	}
+}
+
+func TestResourcePolicy_ToAddPermissionCommand(t *testing.T) {
+	t.Parallel()
+	resourcePolicy := glambda.ResourcePolicy{
+		Sid:       "AllowExecutionFromS3",
+		Effect:    "Allow",
+		Principal: "s3.amazonaws.com",
+		Action:    "lambda:InvokeFunction",
+		Resource:  "arn:aws:lambda:us-west-2:123456789012:function:test",
+	}
+	rpCmd := resourcePolicy.CreateCommand("testName", "123456789012")
+	want := lambda.AddPermissionInput{
+		Action:        &resourcePolicy.Action,
+		FunctionName:  aws.String("testName"),
+		StatementId:   &resourcePolicy.Sid,
+		Principal:     &resourcePolicy.Principal,
+		SourceAccount: aws.String("123456789012"),
+	}
+	ignore := cmpopts.IgnoreUnexported(lambda.AddPermissionInput{})
+	if !cmp.Equal(rpCmd, want, ignore) {
+		t.Error(cmp.Diff(rpCmd, want, ignore))
+	}
+}
 
 func TestPrepareAction_CreateFunction(t *testing.T) {
 	t.Parallel()
