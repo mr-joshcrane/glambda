@@ -27,6 +27,7 @@ type Lambda struct {
 	HandlerPath    string
 	ExecutionRole  ExecutionRole
 	ResourcePolicy ResourcePolicy
+	cfg            *aws.Config
 }
 type LambdaOptions func(l Lambda) Lambda
 
@@ -154,6 +155,13 @@ func WithResourcePolicy(serviceName string) LambdaOptions {
 	}
 }
 
+func WithAWSConfig(cfg aws.Config) LambdaOptions {
+	return func(l Lambda) Lambda {
+		l.cfg = &cfg
+		return l
+	}
+}
+
 type LambdaClient interface {
 	CreateFunction(ctx context.Context, params *lambda.CreateFunctionInput, optFns ...func(*lambda.Options)) (*lambda.CreateFunctionOutput, error)
 	UpdateFunctionCode(ctx context.Context, params *lambda.UpdateFunctionCodeInput, optFns ...func(*lambda.Options)) (*lambda.UpdateFunctionCodeOutput, error)
@@ -205,9 +213,12 @@ func (a UpdateAction) Do(c LambdaClient) error {
 }
 
 func (l Lambda) Deploy() error {
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		return err
+	if l.cfg == nil {
+		cfg, err := config.LoadDefaultConfig(context.Background())
+		if err != nil {
+			return err
+		}
+		l.cfg = &cfg
 	}
 	roleARN, err := l.PrepareExecutionRole(cfg)
 	if err != nil {
