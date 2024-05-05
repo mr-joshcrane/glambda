@@ -252,10 +252,14 @@ func (l Lambda) PrepareExecutionRole() (string, error) {
 		l.cfg = &cfg
 	}
 	c := iam.NewFromConfig(*l.cfg)
+	var roleARN string
 	resp, err := c.CreateRole(context.Background(), &iam.CreateRoleInput{
 		RoleName:                 aws.String(l.ExecutionRole.RoleName),
 		AssumeRolePolicyDocument: aws.String(l.ExecutionRole.AssumeRolePolicyDocument),
 	})
+	if err == nil {
+		roleARN = *resp.Role.Arn
+	}
 	if err != nil {
 		var i *iTypes.EntityAlreadyExistsException
 		if errors.As(err, &i) {
@@ -265,7 +269,7 @@ func (l Lambda) PrepareExecutionRole() (string, error) {
 			if err != nil {
 				return "", err
 			}
-			return *resp.Role.Arn, nil
+			roleARN = *resp.Role.Arn
 		}
 	}
 	_, err = c.AttachRolePolicy(context.Background(), &iam.AttachRolePolicyInput{
@@ -293,7 +297,7 @@ func (l Lambda) PrepareExecutionRole() (string, error) {
 			return "", err
 		}
 	}
-	return *resp.Role.Arn, err
+	return roleARN, err
 }
 
 func PrepareAction(c LambdaClient, name, path, roleARN string) (Action, error) {
