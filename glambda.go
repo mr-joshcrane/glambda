@@ -220,12 +220,12 @@ func (l Lambda) Deploy() error {
 		}
 		l.cfg = &cfg
 	}
-	roleARN, err := l.PrepareExecutionRole(cfg)
+	roleARN, err := l.PrepareExecutionRole()
 	if err != nil {
 		return err
 	}
 	fmt.Println("Created execution role: ", roleARN)
-	c := lambda.NewFromConfig(cfg)
+	c := lambda.NewFromConfig(*l.cfg)
 	action, err := PrepareAction(c, l.Name, l.HandlerPath, roleARN)
 	if err != nil {
 		return err
@@ -243,8 +243,15 @@ func (l Lambda) Deploy() error {
 	return invokeUpdatedLambda(c, l.Name)
 }
 
-func (l Lambda) PrepareExecutionRole(cfg aws.Config) (string, error) {
-	c := iam.NewFromConfig(cfg)
+func (l Lambda) PrepareExecutionRole() (string, error) {
+	if l.cfg == nil {
+		cfg, err := config.LoadDefaultConfig(context.Background())
+		if err != nil {
+			return "", err
+		}
+		l.cfg = &cfg
+	}
+	c := iam.NewFromConfig(*l.cfg)
 	resp, err := c.CreateRole(context.Background(), &iam.CreateRoleInput{
 		RoleName:                 aws.String(l.ExecutionRole.RoleName),
 		AssumeRolePolicyDocument: aws.String(l.ExecutionRole.AssumeRolePolicyDocument),
