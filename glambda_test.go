@@ -51,6 +51,26 @@ func TestNewLambda_WithExecutionRole(t *testing.T) {
 	}
 }
 
+func TestNewExecutionRole_Options(t *testing.T) {
+	t.Parallel()
+	executionRole := glambda.ExecutionRole{
+		RoleName: "testRole",
+	}
+	glambda.WithInlinePolicy(`some valid iam policy`)(&executionRole)
+	glambda.WithManagedPolicies("SomeAWSManagedPolicyByName", "arn:aws:iam::aws:policy/SomeAWSManagedPolicyByARN")(&executionRole)
+	want := glambda.ExecutionRole{
+		RoleName:     "testRole",
+		InLinePolicy: `some valid iam policy`,
+		ManagedPolicies: []string{
+			"arn:aws:iam::aws:policy/SomeAWSManagedPolicyByName",
+			"arn:aws:iam::aws:policy/SomeAWSManagedPolicyByARN",
+		},
+	}
+	if !cmp.Equal(executionRole, want) {
+		t.Error(cmp.Diff(executionRole, want))
+	}
+}
+
 func TestNewLambda_WithResourcePolicy(t *testing.T) {
 	t.Parallel()
 	want := glambda.ResourcePolicy{
