@@ -180,7 +180,7 @@ type CreateAction struct {
 
 func (a CreateAction) Do(c LambdaClient) error {
 	var err error
-	cmd := createLambda(a.Name, a.Role, a.Pkg)
+	cmd := CreateLambdaCommand(a.Name, a.Role, a.Pkg)
 	for i := 0; i < 3; i++ {
 		_, err = c.CreateFunction(context.Background(), &cmd)
 		if err == nil {
@@ -204,7 +204,7 @@ type UpdateAction struct {
 }
 
 func (a UpdateAction) Do(c LambdaClient) error {
-	cmd := updateLambda(a.Name, a.Pkg)
+	cmd := UpdateLambdaCommand(a.Name, a.Pkg)
 	_, err := c.UpdateFunctionCode(context.Background(), &cmd)
 	if err == nil {
 		fmt.Printf("Lambda function %s updated\n", a.Name)
@@ -340,7 +340,7 @@ func lambdaExists(c LambdaClient, name string) (bool, error) {
 	return true, nil
 }
 
-func createLambda(name, role string, pkg []byte) lambda.CreateFunctionInput {
+func CreateLambdaCommand(name, role string, pkg []byte) lambda.CreateFunctionInput {
 	return lambda.CreateFunctionInput{
 		FunctionName: aws.String(name),
 		Role:         aws.String(role),
@@ -355,7 +355,7 @@ func createLambda(name, role string, pkg []byte) lambda.CreateFunctionInput {
 	}
 }
 
-func updateLambda(name string, pkg []byte) lambda.UpdateFunctionCodeInput {
+func UpdateLambdaCommand(name string, pkg []byte) lambda.UpdateFunctionCodeInput {
 	return lambda.UpdateFunctionCodeInput{
 		FunctionName: aws.String(name),
 		ZipFile:      pkg,

@@ -280,6 +280,40 @@ func TestPackage_PackagesLambdaFunction(t *testing.T) {
 	}
 }
 
+func TestCreateLambdaCommand(t *testing.T) {
+	t.Parallel()
+	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"))
+	want := lambda.CreateFunctionInput{
+		FunctionName: aws.String("lambdaName"),
+		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-role"),
+		Code: &types.FunctionCode{
+			ZipFile: []byte("some valid zip data"),
+		},
+		Architectures: []types.Architecture{"arm64"},
+		Handler:       aws.String("/var/task/bootstrap"),
+		Runtime:       types.RuntimeProvidedal2023,
+	}
+	ignore := cmpopts.IgnoreUnexported(lambda.CreateFunctionInput{}, types.FunctionCode{})
+	if !cmp.Equal(cmd, want, ignore) {
+		t.Error(cmp.Diff(cmd, want, ignore))
+	}
+}
+
+func TestUpdateLambdaCommand(t *testing.T) {
+	t.Parallel()
+	cmd := glambda.UpdateLambdaCommand("lambdaName", []byte("some valid zip data"))
+	want := lambda.UpdateFunctionCodeInput{
+		FunctionName: aws.String("lambdaName"),
+		ZipFile:      []byte("some valid zip data"),
+		Publish:      true,
+	}
+	ignore := cmpopts.IgnoreUnexported(lambda.UpdateFunctionCodeInput{})
+	if !cmp.Equal(cmd, want, ignore) {
+		t.Error(cmp.Diff(cmd, want, ignore))
+	}
+
+}
+
 type DummyLambdaClient struct {
 	funcExists bool
 	err        error
