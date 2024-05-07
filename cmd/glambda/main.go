@@ -15,14 +15,7 @@ func main() {
 
 	name := os.Args[1]
 	source := os.Args[2]
-	inlinePolicy := ""
-	executionRole := glambda.WithExecutionRole(
-		"glambda_exec_role_"+name,
-		glambda.WithInlinePolicy(inlinePolicy),
-	)
-	resourcePolicy := glambda.WithResourcePolicy("events.amazonaws.com")
-	l := glambda.NewLambda(name, source, executionRole, resourcePolicy)
-	err := l.Deploy()
+	err := glambda.Deploy(name, source)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

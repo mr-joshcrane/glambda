@@ -48,37 +48,31 @@ type Lambda struct {
 	ExecutionRole  ExecutionRole
 	ResourcePolicy ResourcePolicy
 	AWSAccountID   string
-	cfg            *aws.Config
+	cfg            aws.Config
 }
-type LambdaOptions func(l Lambda) Lambda
 
-func NewLambda(name, handlerPath string, opts ...LambdaOptions) (Lambda, error) {
-	l := Lambda{
+func NewLambda(name, handlerPath string) (*Lambda, error) {
+	awsConfig, err := config.LoadDefaultConfig(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	accountID, err := AWSAccountID(awsConfig)
+	if err != nil {
+		return nil, err
+	}
+	return &Lambda{
 		Name:        name,
 		HandlerPath: handlerPath,
 		ExecutionRole: ExecutionRole{
 			RoleName:                 "glambda_exec_role_" + strings.ToLower(name),
 			AssumeRolePolicyDocument: DefaultAssumeRolePolicy,
+			ManagedPolicies: []string{
+				"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+			},
 		},
-	}
-	for _, opt := range opts {
-		l = opt(l)
-	}
-	if l.cfg == nil {
-		cfg, err := config.LoadDefaultConfig(context.Background())
-		if err != nil {
-			return Lambda{}, err
-		}
-		l.cfg = &cfg
-	}
-	if l.AWSAccountID == "" {
-		accountID, err := AWSAccountID(*l.cfg)
-		if err != nil {
-			return Lambda{}, err
-		}
-		l.AWSAccountID = accountID
-	}
-	return l, nil
+		cfg:          awsConfig,
+		AWSAccountID: accountID,
+	}, nil
 }
 
 type ExecutionRole struct {
@@ -133,23 +127,6 @@ func (r ResourcePolicy) CreateCommand(lambdaName, accountID string) lambda.AddPe
 	}
 }
 
-func WithExecutionRole(name string, opts ...RoleOptions) LambdaOptions {
-	executionRole := ExecutionRole{
-		RoleName:                 name,
-		AssumeRolePolicyDocument: DefaultAssumeRolePolicy,
-		ManagedPolicies: []string{
-			"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
-		},
-	}
-	for _, opt := range opts {
-		opt(&executionRole)
-	}
-	return func(l Lambda) Lambda {
-		l.ExecutionRole = executionRole
-		return l
-	}
-}
-
 type RoleOptions func(role *ExecutionRole)
 
 func expandManagedPolicies(policyARNs []string) []string {
@@ -164,36 +141,13 @@ func expandManagedPolicies(policyARNs []string) []string {
 	return expandedPolicyArns
 }
 
-func WithManagedPolicies(policyARNs ...string) RoleOptions {
-	return func(role *ExecutionRole) {
-		role.ManagedPolicies = append(role.ManagedPolicies, expandManagedPolicies(policyARNs)...)
-	}
-}
-
-func WithInlinePolicy(policy string) RoleOptions {
-	return func(role *ExecutionRole) {
-		role.InLinePolicy = policy
-	}
-}
-
-func WithResourcePolicy(serviceName string) LambdaOptions {
-	resourcePolicy := ResourcePolicy{
+func resourcePolicy(serviceName string) ResourcePolicy {
+	return ResourcePolicy{
 		Effect:    "Allow",
 		Principal: serviceName,
 		Action:    "lambda:InvokeFunction",
 		Resource:  "*",
 		Condition: ThisAWSAccountCondition,
-	}
-	return func(l Lambda) Lambda {
-		l.ResourcePolicy = resourcePolicy
-		return l
-	}
-}
-
-func WithAWSConfig(cfg aws.Config) LambdaOptions {
-	return func(l Lambda) Lambda {
-		l.cfg = &cfg
-		return l
 	}
 }
 
@@ -272,8 +226,8 @@ func (a LambdaUpdateAction) Do() error {
 }
 
 func (l Lambda) Deploy() error {
-	iamClient := iam.NewFromConfig(*l.cfg)
-	roleAction, err := l.PrepareRoleAction(iamClient)
+	iamClient := iam.NewFromConfig(l.cfg)
+	roleAction, err := PrepareRoleAction(l.ExecutionRole, iamClient)
 	if err != nil {
 		return err
 	}
@@ -281,7 +235,7 @@ func (l Lambda) Deploy() error {
 	if err != nil {
 		return err
 	}
-	c := lambda.NewFromConfig(*l.cfg)
+	c := lambda.NewFromConfig(l.cfg)
 	action, err := l.PrepareLambdaAction(c)
 	if err != nil {
 		return err
@@ -335,54 +289,44 @@ func (a RoleCreateOrUpdate) Do() error {
 	return err
 }
 
-func AttachRolePolicies(l Lambda) []iam.AttachRolePolicyInput {
-	var inputs []iam.AttachRolePolicyInput
-	inputs = append(inputs, iam.AttachRolePolicyInput{
-		PolicyArn: aws.String("arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"),
-		RoleName:  aws.String(l.ExecutionRole.RoleName),
-	})
-	for _, policy := range l.ExecutionRole.ManagedPolicies {
-		inputs = append(inputs, l.ExecutionRole.AttachManagedPolicyCommand(policy))
-	}
-	return inputs
-}
-
-func PutRolePolicyCommand(l Lambda) []iam.PutRolePolicyInput {
+func PutRolePolicyCommand(role ExecutionRole) []iam.PutRolePolicyInput {
 	var inputs []iam.PutRolePolicyInput
-	if l.ExecutionRole.InLinePolicy == "" {
+	if role.InLinePolicy == "" {
 		return inputs
 	}
 	cmd := iam.PutRolePolicyInput{
 		PolicyName:     aws.String("glambda_inline_policy_" + UUID()),
-		PolicyDocument: aws.String(l.ExecutionRole.InLinePolicy),
-		RoleName:       aws.String(l.ExecutionRole.RoleName),
+		PolicyDocument: aws.String(role.InLinePolicy),
+		RoleName:       aws.String(role.RoleName),
 	}
 	inputs = append(inputs, cmd)
 	return inputs
 }
 
-func (l Lambda) PrepareRoleAction(client IAMClient) (RoleAction, error) {
+func PrepareRoleAction(role ExecutionRole, iamClient IAMClient) (RoleAction, error) {
 	action := RoleCreateOrUpdate{
-		client:          client,
-		ManagedPolicies: []iam.AttachRolePolicyInput{},
-		InlinePolicies:  []iam.PutRolePolicyInput{},
+		InlinePolicies: []iam.PutRolePolicyInput{},
+		ManagedPolicies: []iam.AttachRolePolicyInput{
+			{
+				PolicyArn: aws.String("arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"),
+				RoleName:  aws.String(role.RoleName),
+			},
+		},
 	}
-	_, err := client.GetRole(context.Background(), &iam.GetRoleInput{
-		RoleName: aws.String(l.ExecutionRole.RoleName),
+	_, err := iamClient.GetRole(context.Background(), &iam.GetRoleInput{
+		RoleName: aws.String(role.RoleName),
 	})
 	if err != nil {
 		var resourceNotFound *iTypes.NoSuchEntityException
-		if errors.As(err, &resourceNotFound) {
-			action = RoleCreateOrUpdate{
-				client:     client,
-				CreateRole: l.ExecutionRole.CreateRoleCommand(),
-			}
-		} else {
+		if !errors.As(err, &resourceNotFound) {
 			return nil, err
 		}
+		action.CreateRole = role.CreateRoleCommand()
 	}
-	action.ManagedPolicies = AttachRolePolicies(l)
-	action.InlinePolicies = PutRolePolicyCommand(l)
+	for _, policy := range role.ManagedPolicies {
+		action.ManagedPolicies = append(action.ManagedPolicies, role.AttachManagedPolicyCommand(policy))
+	}
+	action.InlinePolicies = PutRolePolicyCommand(role)
 	return action, nil
 }
 
@@ -490,4 +434,12 @@ func invokeUpdatedLambda(c *lambda.Client, name string) error {
 	}
 	fmt.Println(resp.StatusCode)
 	return nil
+}
+
+func Deploy(name, source string) error {
+	l, err := NewLambda(name, source)
+	if err != nil {
+		return err
+	}
+	return l.Deploy()
 }
