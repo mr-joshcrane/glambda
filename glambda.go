@@ -60,11 +60,14 @@ func NewLambda(name, handlerPath string) (*Lambda, error) {
 	if err != nil {
 		return nil, err
 	}
+	roleName := "glambda_exec_role_" + strings.ToLower(name)
+	roleARN := "arn:aws:iam::" + accountID + ":role/" + roleName
 	return &Lambda{
 		Name:        name,
 		HandlerPath: handlerPath,
 		ExecutionRole: ExecutionRole{
-			RoleName:                 "glambda_exec_role_" + strings.ToLower(name),
+			RoleName:                 roleName,
+			RoleARN:                  roleARN,
 			AssumeRolePolicyDocument: DefaultAssumeRolePolicy,
 			ManagedPolicies: []string{
 				"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
@@ -83,8 +86,8 @@ type ExecutionRole struct {
 	InLinePolicy             string
 }
 
-func (e ExecutionRole) CreateRoleCommand() iam.CreateRoleInput {
-	return iam.CreateRoleInput{
+func (e ExecutionRole) CreateRoleCommand() *iam.CreateRoleInput {
+	return &iam.CreateRoleInput{
 		RoleName:                 aws.String(e.RoleName),
 		AssumeRolePolicyDocument: aws.String(e.AssumeRolePolicyDocument),
 	}
@@ -174,10 +177,10 @@ type LambdaAction interface {
 }
 
 type LambdaCreateAction struct {
-	client LambdaClient
-	Name   string
-	Role   string
-	Pkg    []byte
+	client  LambdaClient
+	Name    string
+	RoleARN string
+	Pkg     []byte
 }
 
 func (a LambdaCreateAction) Client() LambdaClient {
@@ -187,7 +190,7 @@ func (a LambdaCreateAction) Client() LambdaClient {
 func (a LambdaCreateAction) Do() error {
 	var err error
 	client := a.Client()
-	cmd := CreateLambdaCommand(a.Name, a.Role, a.Pkg)
+	cmd := CreateLambdaCommand(a.Name, a.RoleARN, a.Pkg)
 	for i := 0; i < 3; i++ {
 		_, err = client.CreateFunction(context.Background(), &cmd)
 		if err == nil {
@@ -235,8 +238,8 @@ func (l Lambda) Deploy() error {
 	if err != nil {
 		return err
 	}
-	c := lambda.NewFromConfig(l.cfg)
-	action, err := PrepareLambdaAction(l, c)
+	lambdaClient := lambda.NewFromConfig(l.cfg)
+	action, err := PrepareLambdaAction(l, lambdaClient)
 	if err != nil {
 		return err
 	}
@@ -244,12 +247,12 @@ func (l Lambda) Deploy() error {
 	if err != nil {
 		return err
 	}
-	resourcePolicy := l.ResourcePolicy.CreateCommand(l.Name, l.AWSAccountID)
-	_, err = c.AddPermission(context.Background(), &resourcePolicy)
-	if err != nil {
-		return err
-	}
-	return invokeUpdatedLambda(c, l.Name)
+	//resourcePolicy := l.ResourcePolicy.CreateCommand(l.Name, l.AWSAccountID)
+	//_, err = lambdaClient.AddPermission(context.Background(), &resourcePolicy)
+	//if err != nil {
+	//	return err
+	//}
+	return invokeUpdatedLambda(lambdaClient, l.Name)
 }
 
 type RoleAction interface {
@@ -259,7 +262,7 @@ type RoleAction interface {
 
 type RoleCreateOrUpdate struct {
 	client          IAMClient
-	CreateRole      iam.CreateRoleInput
+	CreateRole      *iam.CreateRoleInput
 	ManagedPolicies []iam.AttachRolePolicyInput
 	InlinePolicies  []iam.PutRolePolicyInput
 }
@@ -269,10 +272,13 @@ func (a RoleCreateOrUpdate) Client() IAMClient {
 }
 
 func (a RoleCreateOrUpdate) Do() error {
+	var err error
 	client := a.Client()
-	_, err := client.CreateRole(context.Background(), &a.CreateRole)
-	if err == nil {
-		fmt.Printf("Role %s created\n", *a.CreateRole.RoleName)
+	if a.CreateRole != nil {
+		_, err := client.CreateRole(context.Background(), a.CreateRole)
+		if err != nil {
+			return err
+		}
 	}
 	for _, cmd := range a.ManagedPolicies {
 		_, err = client.AttachRolePolicy(context.Background(), &cmd)
@@ -305,6 +311,7 @@ func PutRolePolicyCommand(role ExecutionRole) []iam.PutRolePolicyInput {
 
 func PrepareRoleAction(role ExecutionRole, iamClient IAMClient) (RoleAction, error) {
 	action := RoleCreateOrUpdate{
+		client:         iamClient,
 		InlinePolicies: []iam.PutRolePolicyInput{},
 		ManagedPolicies: []iam.AttachRolePolicyInput{
 			{
@@ -342,14 +349,16 @@ func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
 	var action LambdaAction
 	if exists {
 		action = LambdaUpdateAction{
-			Name: l.Name,
-			Pkg:  pkg,
+			client: c,
+			Name:   l.Name,
+			Pkg:    pkg,
 		}
 	} else {
 		action = LambdaCreateAction{
-			Name: l.Name,
-			Role: l.ExecutionRole.RoleName,
-			Pkg:  pkg,
+			client:  c,
+			Name:    l.Name,
+			RoleARN: l.ExecutionRole.RoleARN,
+			Pkg:     pkg,
 		}
 	}
 	return action, nil
@@ -370,10 +379,10 @@ func lambdaExists(c LambdaClient, name string) (bool, error) {
 	return true, nil
 }
 
-func CreateLambdaCommand(name, role string, pkg []byte) lambda.CreateFunctionInput {
+func CreateLambdaCommand(name, roleARN string, pkg []byte) lambda.CreateFunctionInput {
 	return lambda.CreateFunctionInput{
 		FunctionName: aws.String(name),
-		Role:         aws.String(role),
+		Role:         aws.String(roleARN),
 		Handler:      aws.String("/var/task/bootstrap"),
 		Runtime:      types.RuntimeProvidedal2023,
 		Architectures: []types.Architecture{

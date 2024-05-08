@@ -43,6 +43,7 @@ func TestNewLambda(t *testing.T) {
 	}
 	want := glambda.ExecutionRole{
 		RoleName:                 "glambda_exec_role_test",
+		RoleARN:                  "arn:aws:iam::123456789012:role/glambda_exec_role_test",
 		AssumeRolePolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`,
 		ManagedPolicies:          []string{"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"},
 	}
@@ -62,7 +63,7 @@ func TestExecutionRole_CreateRoleCommand(t *testing.T) {
 		AssumeRolePolicyDocument: assumePolicy,
 	}
 	roleCmd := execRole.CreateRoleCommand()
-	want := iam.CreateRoleInput{
+	want := &iam.CreateRoleInput{
 		RoleName:                 aws.String("testRole"),
 		AssumeRolePolicyDocument: aws.String(assumePolicy),
 	}
@@ -339,7 +340,7 @@ func TestPrepareRoleAction_CreatesRoleWhenRoleDoesNotExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := glambda.RoleCreateOrUpdate{
-		CreateRole: iam.CreateRoleInput{
+		CreateRole: &iam.CreateRoleInput{
 			RoleName:                 aws.String("aRoleName"),
 			AssumeRolePolicyDocument: aws.String(glambda.DefaultAssumeRolePolicy),
 		},
