@@ -129,7 +129,7 @@ func (r ResourcePolicy) CreateCommand(lambdaName, accountID string) lambda.AddPe
 
 type RoleOptions func(role *ExecutionRole)
 
-func expandManagedPolicies(policyARNs []string) []string {
+func ExpandManagedPolicies(policyARNs []string) []string {
 	var expandedPolicyArns []string
 	for _, policyARN := range policyARNs {
 		if strings.HasPrefix(policyARN, "arn:") {
@@ -236,7 +236,7 @@ func (l Lambda) Deploy() error {
 		return err
 	}
 	c := lambda.NewFromConfig(l.cfg)
-	action, err := l.PrepareLambdaAction(c)
+	action, err := PrepareLambdaAction(l, c)
 	if err != nil {
 		return err
 	}
@@ -330,7 +330,7 @@ func PrepareRoleAction(role ExecutionRole, iamClient IAMClient) (RoleAction, err
 	return action, nil
 }
 
-func (l Lambda) PrepareLambdaAction(c LambdaClient) (LambdaAction, error) {
+func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
 	exists, err := lambdaExists(c, l.Name)
 	if err != nil {
 		return nil, err

@@ -140,7 +140,7 @@ func TestPrepareAction_CreateFunction(t *testing.T) {
 		HandlerPath:   handler,
 		ExecutionRole: glambda.ExecutionRole{RoleName: "lambda-role"},
 	}
-	action, err := l.PrepareLambdaAction(client)
+	action, err := glambda.PrepareLambdaAction(l, client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestPrepareAction_UpdateFunction(t *testing.T) {
 		ExecutionRole: glambda.ExecutionRole{RoleName: "lambda-role"},
 	}
 
-	action, err := l.PrepareLambdaAction(client)
+	action, err := glambda.PrepareLambdaAction(l, client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestPrepareAction_ErrorCase(t *testing.T) {
 		HandlerPath:   handler,
 		ExecutionRole: glambda.ExecutionRole{RoleName: "lambda-role"},
 	}
-	_, err := l.PrepareLambdaAction(client)
+	_, err := glambda.PrepareLambdaAction(l, client)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -378,6 +378,23 @@ func TestPrepareRoleAction_DoesNotCreateRoleWhenRoleExists(t *testing.T) {
 	ignore := cmpopts.IgnoreUnexported(iam.CreateRoleInput{}, iam.AttachRolePolicyInput{}, glambda.RoleCreateOrUpdate{})
 	if !cmp.Equal(want, got, ignore) {
 		t.Error(cmp.Diff(want, got, ignore))
+	}
+}
+
+func TestExpandManagedPolicies_AcceptsManagedPoliciesByNamesOrByARN(t *testing.T) {
+	t.Parallel()
+	userSuppliedPolicies := []string{
+		"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+		"AmazonDynamoDBReadOnlyAccess",
+	}
+
+	got := glambda.ExpandManagedPolicies(userSuppliedPolicies)
+	want := []string{
+		"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+		"arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess",
+	}
+	if !cmp.Equal(want, got) {
+		t.Error(cmp.Diff(want, got))
 	}
 }
 
