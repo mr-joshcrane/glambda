@@ -267,7 +267,7 @@ func TestPackage_PackagesLambdaFunction(t *testing.T) {
 func TestCreateLambdaCommand(t *testing.T) {
 	t.Parallel()
 	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"))
-	want := lambda.CreateFunctionInput{
+	want := &lambda.CreateFunctionInput{
 		FunctionName: aws.String("lambdaName"),
 		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-role"),
 		Code: &types.FunctionCode{
@@ -286,7 +286,7 @@ func TestCreateLambdaCommand(t *testing.T) {
 func TestUpdateLambdaCommand(t *testing.T) {
 	t.Parallel()
 	cmd := glambda.UpdateLambdaCommand("lambdaName", []byte("some valid zip data"))
-	want := lambda.UpdateFunctionCodeInput{
+	want := &lambda.UpdateFunctionCodeInput{
 		FunctionName: aws.String("lambdaName"),
 		ZipFile:      []byte("some valid zip data"),
 		Publish:      true,

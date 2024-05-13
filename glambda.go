@@ -118,9 +118,6 @@ type ResourcePolicy struct {
 }
 
 func (r ResourcePolicy) CreateCommand(lambdaName, accountID string) lambda.AddPermissionInput {
-	if r.Sid == "" {
-		r.Sid = "glambda_" + UUID()
-	}
 	return lambda.AddPermissionInput{
 		Action:        aws.String(r.Action),
 		FunctionName:  aws.String(lambdaName),
@@ -177,10 +174,9 @@ type LambdaAction interface {
 }
 
 type LambdaCreateAction struct {
-	client  LambdaClient
-	Name    string
-	RoleARN string
-	Pkg     []byte
+	client              LambdaClient
+	CreateLambdaCommand *lambda.CreateFunctionInput
+	Name                string
 }
 
 func (a LambdaCreateAction) Client() LambdaClient {
@@ -190,9 +186,8 @@ func (a LambdaCreateAction) Client() LambdaClient {
 func (a LambdaCreateAction) Do() error {
 	var err error
 	client := a.Client()
-	cmd := CreateLambdaCommand(a.Name, a.RoleARN, a.Pkg)
 	for i := 0; i < 3; i++ {
-		_, err = client.CreateFunction(context.Background(), &cmd)
+		_, err = client.CreateFunction(context.Background(), a.CreateLambdaCommand)
 		if err == nil {
 			fmt.Printf("Lambda function %s created\n", a.Name)
 			return nil
@@ -209,9 +204,9 @@ func (a LambdaCreateAction) Do() error {
 }
 
 type LambdaUpdateAction struct {
-	client LambdaClient
-	Name   string
-	Pkg    []byte
+	client              LambdaClient
+	UpdateLambdaCommand *lambda.UpdateFunctionCodeInput
+	Name                string
 }
 
 func (a LambdaUpdateAction) Client() LambdaClient {
@@ -220,8 +215,7 @@ func (a LambdaUpdateAction) Client() LambdaClient {
 
 func (a LambdaUpdateAction) Do() error {
 	client := a.Client()
-	cmd := UpdateLambdaCommand(a.Name, a.Pkg)
-	_, err := client.UpdateFunctionCode(context.Background(), &cmd)
+	_, err := client.UpdateFunctionCode(context.Background(), a.UpdateLambdaCommand)
 	if err == nil {
 		fmt.Printf("Lambda function %s updated\n", a.Name)
 	}
@@ -349,16 +343,15 @@ func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
 	var action LambdaAction
 	if exists {
 		action = LambdaUpdateAction{
-			client: c,
-			Name:   l.Name,
-			Pkg:    pkg,
+			client:              c,
+			UpdateLambdaCommand: UpdateLambdaCommand(l.Name, pkg),
+			Name:                l.Name,
 		}
 	} else {
 		action = LambdaCreateAction{
-			client:  c,
-			Name:    l.Name,
-			RoleARN: l.ExecutionRole.RoleARN,
-			Pkg:     pkg,
+			client:              c,
+			CreateLambdaCommand: CreateLambdaCommand(l.Name, l.ExecutionRole.RoleARN, pkg),
+			Name:                l.Name,
 		}
 	}
 	return action, nil
@@ -379,8 +372,8 @@ func lambdaExists(c LambdaClient, name string) (bool, error) {
 	return true, nil
 }
 
-func CreateLambdaCommand(name, roleARN string, pkg []byte) lambda.CreateFunctionInput {
-	return lambda.CreateFunctionInput{
+func CreateLambdaCommand(name, roleARN string, pkg []byte) *lambda.CreateFunctionInput {
+	return &lambda.CreateFunctionInput{
 		FunctionName: aws.String(name),
 		Role:         aws.String(roleARN),
 		Handler:      aws.String("/var/task/bootstrap"),
@@ -394,8 +387,8 @@ func CreateLambdaCommand(name, roleARN string, pkg []byte) lambda.CreateFunction
 	}
 }
 
-func UpdateLambdaCommand(name string, pkg []byte) lambda.UpdateFunctionCodeInput {
-	return lambda.UpdateFunctionCodeInput{
+func UpdateLambdaCommand(name string, pkg []byte) *lambda.UpdateFunctionCodeInput {
+	return &lambda.UpdateFunctionCodeInput{
 		FunctionName: aws.String(name),
 		ZipFile:      pkg,
 		Publish:      true,
