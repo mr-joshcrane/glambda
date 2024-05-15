@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	iTypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/google/go-cmp/cmp"
@@ -16,74 +18,38 @@ import (
 	"github.com/mr-joshcrane/glambda"
 )
 
+func init() {
+	glambda.UUID = func() string {
+		return "DEADBEEF"
+	}
+	glambda.AWSAccountID = func(cfg aws.Config) (string, error) {
+		return "123456789012", nil
+	}
+	glambda.DefaultRetryWaitingPeriod = func() {
+		// No need to wait in tests
+	}
+}
+
 func TestNewLambda(t *testing.T) {
 	t.Parallel()
-	l := glambda.NewLambda("test", "testdata/correct_test_handler/main.go")
+	l, err := glambda.NewLambda("test", "testdata/correct_test_handler/main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if l.Name != "test" {
 		t.Errorf("expected name to be test, got %s", l.Name)
 	}
 	if l.HandlerPath != "testdata/correct_test_handler/main.go" {
 		t.Errorf("expected handler path to be testdata/correct_test_handler/main.go, got %s", l.HandlerPath)
 	}
-	if !cmp.Equal(l.ExecutionRole, glambda.ExecutionRole{
+	want := glambda.ExecutionRole{
 		RoleName:                 "glambda_exec_role_test",
+		RoleARN:                  "arn:aws:iam::123456789012:role/glambda_exec_role_test",
 		AssumeRolePolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`,
-	}) {
-		t.Errorf("expected execution role to be default, got %v", l.ExecutionRole)
+		ManagedPolicies:          []string{"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"},
 	}
-	if !cmp.Equal(l.ResourcePolicy, glambda.ResourcePolicy{}) {
-		t.Errorf("expected resource policy to be empty, got %v", l.ResourcePolicy)
-	}
-}
-
-func TestNewLambda_WithExecutionRole(t *testing.T) {
-	t.Parallel()
-	l := glambda.NewLambda(
-		"test", "testdata/correct_test_handler/main.go", glambda.WithExecutionRole("lambda-role"),
-	)
-	want := glambda.ExecutionRole{
-		RoleName:                 "lambda-role",
-		AssumeRolePolicyDocument: glambda.DefaultAssumeRolePolicy,
-		ManagedPolicies:          []string{glambda.AWSLambdaBasicExecutionRole},
-	}
-	if !cmp.Equal(l.ExecutionRole, want) {
-		t.Error(cmp.Diff(l.ExecutionRole, want))
-	}
-}
-
-func TestNewExecutionRole_Options(t *testing.T) {
-	t.Parallel()
-	executionRole := glambda.ExecutionRole{
-		RoleName: "testRole",
-	}
-	glambda.WithInlinePolicy(`some valid iam policy`)(&executionRole)
-	glambda.WithManagedPolicies("SomeAWSManagedPolicyByName", "arn:aws:iam::aws:policy/SomeAWSManagedPolicyByARN")(&executionRole)
-	want := glambda.ExecutionRole{
-		RoleName:     "testRole",
-		InLinePolicy: `some valid iam policy`,
-		ManagedPolicies: []string{
-			"arn:aws:iam::aws:policy/SomeAWSManagedPolicyByName",
-			"arn:aws:iam::aws:policy/SomeAWSManagedPolicyByARN",
-		},
-	}
-	if !cmp.Equal(executionRole, want) {
-		t.Error(cmp.Diff(executionRole, want))
-	}
-}
-
-func TestNewLambda_WithResourcePolicy(t *testing.T) {
-	t.Parallel()
-	want := glambda.ResourcePolicy{
-		Effect:    "Allow",
-		Principal: "s3.amazonaws.com",
-		Action:    "lambda:InvokeFunction",
-		Resource:  "*",
-		Condition: glambda.ThisAWSAccountCondition,
-	}
-	l := glambda.NewLambda("test", "testdata/correct_test_handler/main.go", glambda.WithResourcePolicy("s3.amazonaws.com"))
-
-	if !cmp.Equal(l.ResourcePolicy, want) {
-		t.Error(cmp.Diff(l.ResourcePolicy, want))
+	if !cmp.Equal(want, l.ExecutionRole) {
+		t.Error(cmp.Diff(want, l.ExecutionRole))
 	}
 }
 
@@ -95,7 +61,7 @@ func TestExecutionRole_CreateRoleCommand(t *testing.T) {
 		AssumeRolePolicyDocument: assumePolicy,
 	}
 	roleCmd := execRole.CreateRoleCommand()
-	want := iam.CreateRoleInput{
+	want := &iam.CreateRoleInput{
 		RoleName:                 aws.String("testRole"),
 		AssumeRolePolicyDocument: aws.String(assumePolicy),
 	}
@@ -141,38 +107,24 @@ func TestExecutionRole_AttachInLinePolicyCommand(t *testing.T) {
 	}
 }
 
-func TestResourcePolicy_ToAddPermissionCommand(t *testing.T) {
-	t.Parallel()
-	resourcePolicy := glambda.ResourcePolicy{
-		Sid:       "AllowExecutionFromS3",
-		Effect:    "Allow",
-		Principal: "s3.amazonaws.com",
-		Action:    "lambda:InvokeFunction",
-		Resource:  "arn:aws:lambda:us-west-2:123456789012:function:test",
-	}
-	rpCmd := resourcePolicy.CreateCommand("testName", "123456789012")
-	want := lambda.AddPermissionInput{
-		Action:        &resourcePolicy.Action,
-		FunctionName:  aws.String("testName"),
-		StatementId:   &resourcePolicy.Sid,
-		Principal:     &resourcePolicy.Principal,
-		SourceAccount: aws.String("123456789012"),
-	}
-	ignore := cmpopts.IgnoreUnexported(lambda.AddPermissionInput{})
-	if !cmp.Equal(rpCmd, want, ignore) {
-		t.Error(cmp.Diff(rpCmd, want, ignore))
-	}
-}
-
 func TestPrepareAction_CreateFunction(t *testing.T) {
 	t.Parallel()
-	client := helperDummyLambdaClient(false, nil)
+
+	client := DummyLambdaClient{
+		funcExists: false,
+		err:        nil,
+	}
 	handler := "testdata/correct_test_handler/main.go"
-	action, err := glambda.PrepareAction(client, "test", handler, "arn:aws:iam::123456789012:role/lambda-role")
+	l := glambda.Lambda{
+		Name:          "test",
+		HandlerPath:   handler,
+		ExecutionRole: glambda.ExecutionRole{RoleName: "lambda-role"},
+	}
+	action, err := glambda.PrepareLambdaAction(l, client)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := action.(glambda.CreateAction)
+	got, ok := action.(glambda.LambdaCreateAction)
 	if !ok {
 		t.Errorf("expected CreateAction, got %T", action)
 	}
@@ -183,13 +135,22 @@ func TestPrepareAction_CreateFunction(t *testing.T) {
 
 func TestPrepareAction_UpdateFunction(t *testing.T) {
 	t.Parallel()
-	client := helperDummyLambdaClient(true, nil)
+	client := DummyLambdaClient{
+		funcExists: true,
+		err:        nil,
+	}
 	handler := "testdata/correct_test_handler/main.go"
-	action, err := glambda.PrepareAction(client, "test", handler, "arn:aws:iam::123456789012:role/lambda-role")
+	l := glambda.Lambda{
+		Name:          "test",
+		HandlerPath:   handler,
+		ExecutionRole: glambda.ExecutionRole{RoleName: "lambda-role"},
+	}
+
+	action, err := glambda.PrepareLambdaAction(l, client)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := action.(glambda.UpdateAction)
+	got, ok := action.(glambda.LambdaUpdateAction)
 	if !ok {
 		t.Errorf("expected UpdateAction, got %T", action)
 	}
@@ -200,9 +161,17 @@ func TestPrepareAction_UpdateFunction(t *testing.T) {
 
 func TestPrepareAction_ErrorCase(t *testing.T) {
 	t.Parallel()
-	client := helperDummyLambdaClient(false, fmt.Errorf("some client error"))
+	client := DummyLambdaClient{
+		funcExists: false,
+		err:        fmt.Errorf("some client error"),
+	}
 	handler := "testdata/correct_test_handler/main.go"
-	_, err := glambda.PrepareAction(client, "test", handler, "arn:aws:iam::123456789012:role/lambda-role")
+	l := glambda.Lambda{
+		Name:          "test",
+		HandlerPath:   handler,
+		ExecutionRole: glambda.ExecutionRole{RoleName: "lambda-role"},
+	}
+	_, err := glambda.PrepareLambdaAction(l, client)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -272,7 +241,7 @@ func TestPackage_PackagesLambdaFunction(t *testing.T) {
 	if file.Name != "bootstrap" {
 		t.Errorf("expected file name to be bootstrap, got %s", zipReader.File[0].Name)
 	}
-	if file.Mode() != 0755 {
+	if file.Mode() != 0o755 {
 		t.Errorf("expected bootstrap file mode to be 0755, got %d", zipReader.File[0].Mode())
 	}
 	if file.UncompressedSize64 == 0 {
@@ -283,7 +252,7 @@ func TestPackage_PackagesLambdaFunction(t *testing.T) {
 func TestCreateLambdaCommand(t *testing.T) {
 	t.Parallel()
 	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"))
-	want := lambda.CreateFunctionInput{
+	want := &lambda.CreateFunctionInput{
 		FunctionName: aws.String("lambdaName"),
 		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-role"),
 		Code: &types.FunctionCode{
@@ -302,7 +271,7 @@ func TestCreateLambdaCommand(t *testing.T) {
 func TestUpdateLambdaCommand(t *testing.T) {
 	t.Parallel()
 	cmd := glambda.UpdateLambdaCommand("lambdaName", []byte("some valid zip data"))
-	want := lambda.UpdateFunctionCodeInput{
+	want := &lambda.UpdateFunctionCodeInput{
 		FunctionName: aws.String("lambdaName"),
 		ZipFile:      []byte("some valid zip data"),
 		Publish:      true,
@@ -311,12 +280,289 @@ func TestUpdateLambdaCommand(t *testing.T) {
 	if !cmp.Equal(cmd, want, ignore) {
 		t.Error(cmp.Diff(cmd, want, ignore))
 	}
-
 }
 
+func TestPutRolePolicyCommand_WhereCommandExists(t *testing.T) {
+	t.Parallel()
+	role := glambda.ExecutionRole{
+		RoleName:     "aRoleName",
+		InLinePolicy: `some inline policy`,
+	}
+	cmds := glambda.PutRolePolicyCommand(role)
+	want := []iam.PutRolePolicyInput{
+		{
+			PolicyName:     aws.String("glambda_inline_policy_DEADBEEF"),
+			PolicyDocument: aws.String(`some inline policy`),
+			RoleName:       aws.String("aRoleName"),
+		},
+	}
+	ignore := cmpopts.IgnoreUnexported(iam.PutRolePolicyInput{})
+	if !cmp.Equal(cmds, want, ignore) {
+		t.Error(cmp.Diff(cmds, want, ignore))
+	}
+}
+
+func TestPutRolePolicyCommand_WhereCommandDoesNotExist(t *testing.T) {
+	t.Parallel()
+	role := glambda.ExecutionRole{
+		RoleName: "aRoleName",
+	}
+	cmds := glambda.PutRolePolicyCommand(role)
+	if len(cmds) != 0 {
+		t.Errorf("expected 0 commands, got %d", len(cmds))
+	}
+}
+
+func TestPrepareRoleAction_CreatesRoleWhenRoleDoesNotExist(t *testing.T) {
+	t.Parallel()
+	got, err := glambda.PrepareRoleAction(glambda.ExecutionRole{
+		RoleName:                 "aRoleName",
+		AssumeRolePolicyDocument: glambda.DefaultAssumeRolePolicy,
+	}, DummyIAMClient{
+		RoleExists: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := glambda.RoleCreateOrUpdate{
+		CreateRole: &iam.CreateRoleInput{
+			RoleName:                 aws.String("aRoleName"),
+			AssumeRolePolicyDocument: aws.String(glambda.DefaultAssumeRolePolicy),
+		},
+		ManagedPolicies: []iam.AttachRolePolicyInput{
+			{
+				PolicyArn: aws.String(glambda.AWSLambdaBasicExecutionRole),
+				RoleName:  aws.String("aRoleName"),
+			},
+		},
+	}
+	ignore := cmpopts.IgnoreUnexported(iam.CreateRoleInput{}, iam.AttachRolePolicyInput{}, glambda.RoleCreateOrUpdate{})
+	if !cmp.Equal(want, got, ignore) {
+		t.Error(cmp.Diff(want, got, ignore))
+	}
+}
+
+func TestPrepareRoleAction_DoesNotCreateRoleWhenRoleExists(t *testing.T) {
+	t.Parallel()
+	got, err := glambda.PrepareRoleAction(glambda.ExecutionRole{
+		RoleName:                 "aRoleName",
+		AssumeRolePolicyDocument: glambda.DefaultAssumeRolePolicy,
+	}, DummyIAMClient{
+		RoleExists: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := glambda.RoleCreateOrUpdate{
+		ManagedPolicies: []iam.AttachRolePolicyInput{
+			{
+				PolicyArn: aws.String(glambda.AWSLambdaBasicExecutionRole),
+				RoleName:  aws.String("aRoleName"),
+			},
+		},
+	}
+	ignore := cmpopts.IgnoreUnexported(iam.CreateRoleInput{}, iam.AttachRolePolicyInput{}, glambda.RoleCreateOrUpdate{})
+	if !cmp.Equal(want, got, ignore) {
+		t.Error(cmp.Diff(want, got, ignore))
+	}
+}
+
+func TestPrepareRoleAction_AttachesMultipleManagedPolicies(t *testing.T) {
+	t.Parallel()
+	got, err := glambda.PrepareRoleAction(glambda.ExecutionRole{
+		RoleName:                 "aRoleName",
+		AssumeRolePolicyDocument: glambda.DefaultAssumeRolePolicy,
+		ManagedPolicies:          []string{"arn:aws:iam::aws:policy/IAMFullAccess", "arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess"},
+	}, DummyIAMClient{
+		RoleExists: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := glambda.RoleCreateOrUpdate{
+		CreateRole: &iam.CreateRoleInput{
+			RoleName:                 aws.String("aRoleName"),
+			AssumeRolePolicyDocument: aws.String(glambda.DefaultAssumeRolePolicy),
+		},
+		ManagedPolicies: []iam.AttachRolePolicyInput{
+			{
+				PolicyArn: aws.String(glambda.AWSLambdaBasicExecutionRole),
+				RoleName:  aws.String("aRoleName"),
+			},
+			{
+				PolicyArn: aws.String("arn:aws:iam::aws:policy/IAMFullAccess"),
+				RoleName:  aws.String("aRoleName"),
+			},
+			{
+				PolicyArn: aws.String("arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess"),
+				RoleName:  aws.String("aRoleName"),
+			},
+		},
+	}
+	ignore := cmpopts.IgnoreUnexported(iam.CreateRoleInput{}, iam.AttachRolePolicyInput{}, glambda.RoleCreateOrUpdate{})
+	if !cmp.Equal(want, got, ignore) {
+		t.Error(cmp.Diff(want, got, ignore))
+	}
+}
+
+func TestExpandManagedPolicies_AcceptsManagedPoliciesByNamesOrByARN(t *testing.T) {
+	t.Parallel()
+	userSuppliedPolicies := []string{
+		"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+		"AmazonDynamoDBReadOnlyAccess",
+	}
+
+	got := glambda.ExpandManagedPolicies(userSuppliedPolicies)
+	want := []string{
+		"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+		"arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess",
+	}
+	if !cmp.Equal(want, got) {
+		t.Error(cmp.Diff(want, got))
+	}
+}
+
+func TestWaitForConsistency_PassesForConsistentVersion(t *testing.T) {
+	t.Parallel()
+	client := DummyLambdaClient{
+		ConsistantAfterXRetries: aws.Int(8),
+	}
+	_, err := glambda.WaitForConsistency(client, "testLambda")
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestWaitForConsistency_FailsForInconsistentVersion(t *testing.T) {
+	t.Parallel()
+	client := DummyLambdaClient{}
+	_, err := glambda.WaitForConsistency(client, "testLambda")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestUpdateLambdaActionDo(t *testing.T) {
+	t.Parallel()
+	client := DummyLambdaClient{
+		funcExists: true,
+	}
+	action := glambda.NewLambdaUpdateAction(client, glambda.Lambda{Name: "testLambda"}, []byte("some valid zip data"))
+	err := action.Do()
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestCreateLambdaActionDo(t *testing.T) {
+	t.Parallel()
+	client := DummyLambdaClient{
+		funcExists: false,
+	}
+	action := glambda.NewLambdaCreateAction(client, glambda.Lambda{Name: "testLambda"}, []byte("some valid zip data"))
+	err := action.Do()
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestCreateRoleActionDo_IfRoleDoesNotExist(t *testing.T) {
+	t.Parallel()
+	client := DummyIAMClient{
+		RoleExists: false,
+	}
+	action := glambda.NewRoleCreateOrUpdateAction(client)
+	action.CreateRole = &iam.CreateRoleInput{
+		RoleName:                 aws.String("aRoleName"),
+		AssumeRolePolicyDocument: aws.String(glambda.DefaultAssumeRolePolicy),
+	}
+	err := action.Do()
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestCreateRoleActionDo_FailsIfRoleExists(t *testing.T) {
+	t.Parallel()
+	client := DummyIAMClient{
+		RoleExists: true,
+	}
+	action := glambda.NewRoleCreateOrUpdateAction(client)
+	action.CreateRole = &iam.CreateRoleInput{
+		RoleName:                 aws.String("aRoleName"),
+		AssumeRolePolicyDocument: aws.String(glambda.DefaultAssumeRolePolicy),
+	}
+	err := action.Do()
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestCreateRoleActionDo_AttachesManagedPolicies(t *testing.T) {
+	t.Parallel()
+	var clientCallCounter int32
+	client := DummyIAMClient{
+		RoleExists: false,
+		counter:    &clientCallCounter,
+	}
+	action := glambda.NewRoleCreateOrUpdateAction(client)
+	action.CreateRole = &iam.CreateRoleInput{
+		RoleName:                 aws.String("aRoleName"),
+		AssumeRolePolicyDocument: aws.String(glambda.DefaultAssumeRolePolicy),
+	}
+	action.ManagedPolicies = []iam.AttachRolePolicyInput{
+		{
+			PolicyArn: aws.String(glambda.AWSLambdaBasicExecutionRole),
+			RoleName:  aws.String("aRoleName"),
+		},
+		{
+			PolicyArn: aws.String("arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess"),
+			RoleName:  aws.String("aRoleName"),
+		},
+	}
+	action.InlinePolicies = []iam.PutRolePolicyInput{
+		{
+			PolicyName:     aws.String("glambda_inline_policy_DEADBEEF"),
+			PolicyDocument: aws.String(`some inline policy`),
+		},
+	}
+	err := action.Do()
+	if err != nil {
+		t.Error(err)
+	}
+	if clientCallCounter != 4 {
+		t.Errorf("expected 4 client calls, got %d", clientCallCounter)
+	}
+}
+
+// func TestRetryableErrors_OperationalErrorsAreRetried(t *testing.T) {
+// 	t.Parallel()
+// 	testCases := []struct {
+// 		description string
+// 		err         error
+// 		want        aws.Ternary
+// 	}{
+// 		{
+// 			description: "ResourceNotFoundException",
+// 			err:         smithy.InvalidParamError,
+// 			want:        aws.TrueTernary,
+// 		},
+// 	}
+// 	for _, tc := range testCases {
+// 		t.Run(tc.description, func(t *testing.T) {
+// 			r := glambda.RetryableErrors{}
+// 			got := r.IsErrorRetryable(tc.err)
+// 			if got != tc.want {
+// 				t.Errorf("expected %v, got %v", tc.want, got)
+// 			}
+// 		})
+// 	}
+// }
+
 type DummyLambdaClient struct {
-	funcExists bool
-	err        error
+	ConsistantAfterXRetries *int
+	funcExists              bool
+	err                     error
 }
 
 func (d DummyLambdaClient) GetFunction(ctx context.Context, input *lambda.GetFunctionInput, opts ...func(*lambda.Options)) (*lambda.GetFunctionOutput, error) {
@@ -337,12 +583,71 @@ func (d DummyLambdaClient) CreateFunction(ctx context.Context, input *lambda.Cre
 }
 
 func (d DummyLambdaClient) UpdateFunctionCode(ctx context.Context, input *lambda.UpdateFunctionCodeInput, opts ...func(*lambda.Options)) (*lambda.UpdateFunctionCodeOutput, error) {
-	return &lambda.UpdateFunctionCodeOutput{}, nil
+	return &lambda.UpdateFunctionCodeOutput{}, d.err
 }
 
-func helperDummyLambdaClient(exists bool, err error) glambda.LambdaClient {
-	return DummyLambdaClient{
-		funcExists: exists,
-		err:        err,
+func (d DummyLambdaClient) Invoke(ctx context.Context, input *lambda.InvokeInput, opts ...func(*lambda.Options)) (*lambda.InvokeOutput, error) {
+	return &lambda.InvokeOutput{
+		StatusCode: 200,
+		Payload:    []byte("all good"),
+	}, nil
+}
+
+func (d DummyLambdaClient) PublishVersion(ctx context.Context, input *lambda.PublishVersionInput, opts ...func(*lambda.Options)) (*lambda.PublishVersionOutput, error) {
+	if d.ConsistantAfterXRetries == nil {
+		return &lambda.PublishVersionOutput{}, fmt.Errorf("this lambda never becomes consistent")
 	}
+	if *d.ConsistantAfterXRetries > 0 {
+		*d.ConsistantAfterXRetries--
+		return &lambda.PublishVersionOutput{}, fmt.Errorf("not yet consistent")
+	}
+	return &lambda.PublishVersionOutput{
+		Version: aws.String("1"),
+	}, nil
+}
+
+func (d DummyLambdaClient) AddPermission(ctx context.Context, input *lambda.AddPermissionInput, opts ...func(*lambda.Options)) (*lambda.AddPermissionOutput, error) {
+	return &lambda.AddPermissionOutput{}, nil
+}
+
+type DummyIAMClient struct {
+	RoleExists bool
+	RoleName   string
+	counter    *int32
+}
+
+func (d DummyIAMClient) IncrementCounter() {
+	if d.counter != nil {
+		atomic.AddInt32(d.counter, 1)
+	}
+}
+
+func (d DummyIAMClient) CreateRole(ctx context.Context, input *iam.CreateRoleInput, opts ...func(*iam.Options)) (*iam.CreateRoleOutput, error) {
+	d.IncrementCounter()
+	if d.RoleExists {
+		return &iam.CreateRoleOutput{}, new(iTypes.EntityAlreadyExistsException)
+	}
+	return &iam.CreateRoleOutput{}, nil
+}
+
+func (d DummyIAMClient) AttachRolePolicy(ctx context.Context, input *iam.AttachRolePolicyInput, opts ...func(*iam.Options)) (*iam.AttachRolePolicyOutput, error) {
+	d.IncrementCounter()
+	return &iam.AttachRolePolicyOutput{}, nil
+}
+
+func (d DummyIAMClient) PutRolePolicy(ctx context.Context, input *iam.PutRolePolicyInput, opts ...func(*iam.Options)) (*iam.PutRolePolicyOutput, error) {
+	d.IncrementCounter()
+	return &iam.PutRolePolicyOutput{}, nil
+}
+
+func (d DummyIAMClient) GetRole(ctx context.Context, input *iam.GetRoleInput, opts ...func(*iam.Options)) (*iam.GetRoleOutput, error) {
+	d.IncrementCounter()
+	if d.RoleExists {
+		return &iam.GetRoleOutput{
+			Role: &iTypes.Role{
+				RoleName: aws.String(d.RoleName),
+			},
+		}, nil
+	}
+	return &iam.GetRoleOutput{}, new(iTypes.NoSuchEntityException)
 }
