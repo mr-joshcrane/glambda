@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	iTypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
 )
 
@@ -37,7 +39,6 @@ var AWSAccountID = func(cfg aws.Config) (string, error) {
 	}
 	return *resp.Account, nil
 }
-
 var DefaultRetryWaitingPeriod = func() {
 	time.Sleep(3 * time.Second)
 }
@@ -46,16 +47,39 @@ type Lambda struct {
 	Name           string
 	HandlerPath    string
 	ExecutionRole  ExecutionRole
-	ResourcePolicy ResourcePolicy
 	AWSAccountID   string
+	CallingService string
 	cfg            aws.Config
 }
 
+func customRetryer() aws.Retryer {
+	return retry.NewStandard(func(o *retry.StandardOptions) {
+		o.MaxAttempts = 100
+		o.Retryables = append(o.Retryables, RetryableErrors{})
+	})
+}
+
+type RetryableErrors struct{}
+
+func (r RetryableErrors) IsErrorRetryable(err error) aws.Ternary {
+	if errors.Is(err, &smithy.OperationError{}) {
+		if strings.Contains(err.Error(), "InvalidParameterValueException: The role defined for the function cannot be assumed by Lambda") {
+			return aws.TrueTernary
+		}
+	}
+	return aws.UnknownTernary
+}
+
 func NewLambda(name, handlerPath string) (*Lambda, error) {
-	awsConfig, err := config.LoadDefaultConfig(context.Background())
+	awsConfig, err := config.LoadDefaultConfig(
+		context.Background(),
+		config.WithRetryer(func() aws.Retryer {
+			return customRetryer()
+		}))
 	if err != nil {
 		return nil, err
 	}
+
 	accountID, err := AWSAccountID(awsConfig)
 	if err != nil {
 		return nil, err
@@ -63,8 +87,9 @@ func NewLambda(name, handlerPath string) (*Lambda, error) {
 	roleName := "glambda_exec_role_" + strings.ToLower(name)
 	roleARN := "arn:aws:iam::" + accountID + ":role/" + roleName
 	return &Lambda{
-		Name:        name,
-		HandlerPath: handlerPath,
+		Name:           name,
+		HandlerPath:    handlerPath,
+		CallingService: "events.amazonaws.com",
 		ExecutionRole: ExecutionRole{
 			RoleName:                 roleName,
 			RoleARN:                  roleARN,
@@ -108,22 +133,13 @@ func (e ExecutionRole) AttachInLinePolicyCommand(policyName string) iam.PutRoleP
 	}
 }
 
-type ResourcePolicy struct {
-	Sid       string
-	Effect    string
-	Principal string
-	Action    string
-	Resource  string
-	Condition string
-}
-
-func (r ResourcePolicy) CreateCommand(lambdaName, accountID string) lambda.AddPermissionInput {
+func (l Lambda) CreateLambdaResourcePolicy() lambda.AddPermissionInput {
 	return lambda.AddPermissionInput{
-		Action:        aws.String(r.Action),
-		FunctionName:  aws.String(lambdaName),
-		StatementId:   aws.String(r.Sid),
-		Principal:     aws.String(r.Principal),
-		SourceAccount: aws.String(accountID),
+		Action:        aws.String("lambda:InvokeFunction"),
+		FunctionName:  aws.String(l.Name),
+		StatementId:   aws.String("glambda_invoke_permission_" + UUID()),
+		Principal:     aws.String(l.CallingService),
+		SourceAccount: aws.String(l.AWSAccountID),
 	}
 }
 
@@ -142,22 +158,13 @@ func ExpandManagedPolicies(policyARNs []string) []string {
 	return expandedPolicyArns
 }
 
-func resourcePolicy(serviceName string) ResourcePolicy {
-	return ResourcePolicy{
-		Effect:    "Allow",
-		Principal: serviceName,
-		Action:    "lambda:InvokeFunction",
-		Resource:  "*",
-		Condition: ThisAWSAccountCondition,
-	}
-}
-
 type LambdaClient interface {
 	CreateFunction(ctx context.Context, params *lambda.CreateFunctionInput, optFns ...func(*lambda.Options)) (*lambda.CreateFunctionOutput, error)
 	UpdateFunctionCode(ctx context.Context, params *lambda.UpdateFunctionCodeInput, optFns ...func(*lambda.Options)) (*lambda.UpdateFunctionCodeOutput, error)
 	GetFunction(ctx context.Context, params *lambda.GetFunctionInput, optFns ...func(*lambda.Options)) (*lambda.GetFunctionOutput, error)
 	PublishVersion(ctx context.Context, params *lambda.PublishVersionInput, optFns ...func(*lambda.Options)) (*lambda.PublishVersionOutput, error)
 	Invoke(ctx context.Context, params *lambda.InvokeInput, optFns ...func(*lambda.Options)) (*lambda.InvokeOutput, error)
+	AddPermission(ctx context.Context, params *lambda.AddPermissionInput, optFns ...func(*lambda.Options)) (*lambda.AddPermissionOutput, error)
 }
 
 type IAMClient interface {
@@ -177,9 +184,19 @@ type LambdaAction interface {
 }
 
 type LambdaCreateAction struct {
-	client              LambdaClient
-	CreateLambdaCommand *lambda.CreateFunctionInput
-	Name                string
+	client                LambdaClient
+	CreateLambdaCommand   *lambda.CreateFunctionInput
+	ResourcePolicyCommand lambda.AddPermissionInput
+	Name                  string
+}
+
+func NewLambdaCreateAction(client LambdaClient, l Lambda, pkg []byte) LambdaCreateAction {
+	return LambdaCreateAction{
+		client:                client,
+		CreateLambdaCommand:   CreateLambdaCommand(l.Name, l.ExecutionRole.RoleARN, pkg),
+		ResourcePolicyCommand: l.CreateLambdaResourcePolicy(),
+		Name:                  l.Name,
+	}
 }
 
 func (a LambdaCreateAction) Client() LambdaClient {
@@ -187,29 +204,29 @@ func (a LambdaCreateAction) Client() LambdaClient {
 }
 
 func (a LambdaCreateAction) Do() error {
-	var err error
 	client := a.Client()
-	for i := 0; i < 3; i++ {
-		_, err = client.CreateFunction(context.Background(), a.CreateLambdaCommand)
-		if err == nil {
-			fmt.Printf("Lambda function %s created\n", a.Name)
-			return nil
-		}
-		if errors.Is(err, &types.InvalidParameterValueException{}) {
-			invalidParamErr := err.(*types.InvalidParameterValueException)
-			if !strings.Contains(*invalidParamErr.Message, "role defined for the function cannot be assumed by Lambda") {
-				return err
-			}
-			DefaultRetryWaitingPeriod()
-		}
+	_, err := client.CreateFunction(context.Background(), a.CreateLambdaCommand)
+	if err != nil {
+		return err
 	}
+	_, err = client.AddPermission(context.Background(), &a.ResourcePolicyCommand)
 	return err
 }
 
 type LambdaUpdateAction struct {
-	client              LambdaClient
-	UpdateLambdaCommand *lambda.UpdateFunctionCodeInput
-	Name                string
+	client                LambdaClient
+	UpdateLambdaCommand   *lambda.UpdateFunctionCodeInput
+	ResourcePolicyCommand lambda.AddPermissionInput
+	Name                  string
+}
+
+func NewLambdaUpdateAction(client LambdaClient, l Lambda, pkg []byte) LambdaUpdateAction {
+	return LambdaUpdateAction{
+		client:                client,
+		UpdateLambdaCommand:   UpdateLambdaCommand(l.Name, pkg),
+		ResourcePolicyCommand: l.CreateLambdaResourcePolicy(),
+		Name:                  l.Name,
+	}
 }
 
 func (a LambdaUpdateAction) Client() LambdaClient {
@@ -241,11 +258,6 @@ func (l Lambda) Deploy() error {
 		return err
 	}
 	return action.Do()
-	//resourcePolicy := l.ResourcePolicy.CreateCommand(l.Name, l.AWSAccountID)
-	//_, err = lambdaClient.AddPermission(context.Background(), &resourcePolicy)
-	//if err != nil {
-	//	return err
-	//}
 }
 
 func (l Lambda) Test() error {
@@ -265,6 +277,15 @@ func (l Lambda) Test() error {
 type RoleAction interface {
 	Client() IAMClient
 	Do() error
+}
+
+func NewRoleCreateOrUpdateAction(client IAMClient) RoleCreateOrUpdate {
+	return RoleCreateOrUpdate{
+		client:          client,
+		CreateRole:      nil,
+		ManagedPolicies: []iam.AttachRolePolicyInput{},
+		InlinePolicies:  []iam.PutRolePolicyInput{},
+	}
 }
 
 type RoleCreateOrUpdate struct {
@@ -355,17 +376,9 @@ func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
 	}
 	var action LambdaAction
 	if exists {
-		action = LambdaUpdateAction{
-			client:              c,
-			UpdateLambdaCommand: UpdateLambdaCommand(l.Name, pkg),
-			Name:                l.Name,
-		}
+		action = NewLambdaUpdateAction(c, l, pkg)
 	} else {
-		action = LambdaCreateAction{
-			client:              c,
-			CreateLambdaCommand: CreateLambdaCommand(l.Name, l.ExecutionRole.RoleARN, pkg),
-			Name:                l.Name,
-		}
+		action = NewLambdaCreateAction(c, l, pkg)
 	}
 	return action, nil
 }
