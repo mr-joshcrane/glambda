@@ -134,6 +134,7 @@ func ExpandManagedPolicies(policyARNs []string) []string {
 	for _, policyARN := range policyARNs {
 		if strings.HasPrefix(policyARN, "arn:") {
 			expandedPolicyArns = append(expandedPolicyArns, policyARN)
+
 		} else {
 			expandedPolicyArns = append(expandedPolicyArns, "arn:aws:iam::aws:policy/"+policyARN)
 		}
@@ -155,6 +156,8 @@ type LambdaClient interface {
 	CreateFunction(ctx context.Context, params *lambda.CreateFunctionInput, optFns ...func(*lambda.Options)) (*lambda.CreateFunctionOutput, error)
 	UpdateFunctionCode(ctx context.Context, params *lambda.UpdateFunctionCodeInput, optFns ...func(*lambda.Options)) (*lambda.UpdateFunctionCodeOutput, error)
 	GetFunction(ctx context.Context, params *lambda.GetFunctionInput, optFns ...func(*lambda.Options)) (*lambda.GetFunctionOutput, error)
+	PublishVersion(ctx context.Context, params *lambda.PublishVersionInput, optFns ...func(*lambda.Options)) (*lambda.PublishVersionOutput, error)
+	Invoke(ctx context.Context, params *lambda.InvokeInput, optFns ...func(*lambda.Options)) (*lambda.InvokeOutput, error)
 }
 
 type IAMClient interface {
@@ -237,16 +240,26 @@ func (l Lambda) Deploy() error {
 	if err != nil {
 		return err
 	}
-	err = action.Do()
-	if err != nil {
-		return err
-	}
+	return action.Do()
 	//resourcePolicy := l.ResourcePolicy.CreateCommand(l.Name, l.AWSAccountID)
 	//_, err = lambdaClient.AddPermission(context.Background(), &resourcePolicy)
 	//if err != nil {
 	//	return err
 	//}
-	return invokeUpdatedLambda(lambdaClient, l.Name)
+}
+
+func (l Lambda) Test() error {
+	lambdaClient := lambda.NewFromConfig(l.cfg)
+	version, err := WaitForConsistency(lambdaClient, l.Name)
+	if err != nil {
+		return err
+	}
+	_, err = lambdaClient.Invoke(context.Background(), &lambda.InvokeInput{
+		FunctionName:   aws.String(l.Name),
+		Qualifier:      aws.String(version),
+		InvocationType: types.InvocationTypeDryRun,
+	})
+	return err
 }
 
 type RoleAction interface {
@@ -395,47 +408,24 @@ func UpdateLambdaCommand(name string, pkg []byte) *lambda.UpdateFunctionCodeInpu
 	}
 }
 
-func invokeUpdatedLambda(c *lambda.Client, name string) error {
-	var version string
+func WaitForConsistency(c LambdaClient, name string) (string, error) {
 	retryLimit := 10
-	fmt.Println("Waiting for lambda to become eventually consistent before invoking")
 	for i := 0; true; i++ {
-		versionOutput, err := c.PublishVersion(context.Background(), &lambda.PublishVersionInput{
+		resp, err := c.PublishVersion(context.Background(), &lambda.PublishVersionInput{
 			FunctionName: aws.String(name),
 		})
 		if err == nil {
-			version = *versionOutput.Version
-			fmt.Printf("Lambda is consistent! Lambda version published: %s\n", version)
+			if resp.Version == nil {
+				return "", fmt.Errorf("version is nil")
+			}
+			return *resp.Version, nil
+		}
+		DefaultRetryWaitingPeriod()
+		if i == retryLimit {
 			break
 		}
-		time.Sleep(3 * time.Second)
-		if i == retryLimit {
-			return fmt.Errorf("waited for lambda become consistent, but didn't after %d retries, %w", retryLimit, err)
-		}
 	}
-
-	resp, err := c.Invoke(context.Background(), &lambda.InvokeInput{
-		FunctionName: aws.String(name),
-		Qualifier:    aws.String(version),
-	})
-	if err != nil {
-		return err
-	}
-	fmt.Println("Invocation result:")
-	if resp.FunctionError != nil {
-		fmt.Println("Error:")
-		fmt.Println(*resp.FunctionError)
-	}
-	if resp.Payload != nil {
-		fmt.Println("Payload:")
-		fmt.Println(string(resp.Payload))
-	}
-	if resp.LogResult != nil {
-		fmt.Println("Logs:")
-		fmt.Println(string(*resp.LogResult))
-	}
-	fmt.Println(resp.StatusCode)
-	return nil
+	return "", fmt.Errorf("waited for lambda become consistent, but didn't after %d retries", retryLimit)
 }
 
 func Deploy(name, source string) error {
@@ -443,5 +433,9 @@ func Deploy(name, source string) error {
 	if err != nil {
 		return err
 	}
-	return l.Deploy()
+	err = l.Deploy()
+	if err != nil {
+		return err
+	}
+	return l.Test()
 }

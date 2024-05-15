@@ -134,7 +134,11 @@ func TestResourcePolicy_ToAddPermissionCommand(t *testing.T) {
 
 func TestPrepareAction_CreateFunction(t *testing.T) {
 	t.Parallel()
-	client := helperDummyLambdaClient(false, nil)
+
+	client := DummyLambdaClient{
+		funcExists: false,
+		err:        nil,
+	}
 	handler := "testdata/correct_test_handler/main.go"
 	l := glambda.Lambda{
 		Name:          "test",
@@ -156,7 +160,10 @@ func TestPrepareAction_CreateFunction(t *testing.T) {
 
 func TestPrepareAction_UpdateFunction(t *testing.T) {
 	t.Parallel()
-	client := helperDummyLambdaClient(true, nil)
+	client := DummyLambdaClient{
+		funcExists: true,
+		err:        nil,
+	}
 	handler := "testdata/correct_test_handler/main.go"
 	l := glambda.Lambda{
 		Name:          "test",
@@ -179,7 +186,10 @@ func TestPrepareAction_UpdateFunction(t *testing.T) {
 
 func TestPrepareAction_ErrorCase(t *testing.T) {
 	t.Parallel()
-	client := helperDummyLambdaClient(false, fmt.Errorf("some client error"))
+	client := DummyLambdaClient{
+		funcExists: false,
+		err:        fmt.Errorf("some client error"),
+	}
 	handler := "testdata/correct_test_handler/main.go"
 	l := glambda.Lambda{
 		Name:          "test",
@@ -399,9 +409,30 @@ func TestExpandManagedPolicies_AcceptsManagedPoliciesByNamesOrByARN(t *testing.T
 	}
 }
 
+func TestWaitForConsistency_PassesForConsistentVersion(t *testing.T) {
+	t.Parallel()
+	client := DummyLambdaClient{
+		ConsistantAfterXRetries: aws.Int(8),
+	}
+	_, err := glambda.WaitForConsistency(client, "testLambda")
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestWaitForConsistency_FailsForInconsistentVersion(t *testing.T) {
+	t.Parallel()
+	client := DummyLambdaClient{}
+	_, err := glambda.WaitForConsistency(client, "testLambda")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
 type DummyLambdaClient struct {
-	funcExists bool
-	err        error
+	ConsistantAfterXRetries *int
+	funcExists              bool
+	err                     error
 }
 
 func (d DummyLambdaClient) GetFunction(ctx context.Context, input *lambda.GetFunctionInput, opts ...func(*lambda.Options)) (*lambda.GetFunctionOutput, error) {
@@ -425,11 +456,24 @@ func (d DummyLambdaClient) UpdateFunctionCode(ctx context.Context, input *lambda
 	return &lambda.UpdateFunctionCodeOutput{}, nil
 }
 
-func helperDummyLambdaClient(exists bool, err error) glambda.LambdaClient {
-	return DummyLambdaClient{
-		funcExists: exists,
-		err:        err,
+func (d DummyLambdaClient) Invoke(ctx context.Context, input *lambda.InvokeInput, opts ...func(*lambda.Options)) (*lambda.InvokeOutput, error) {
+	return &lambda.InvokeOutput{
+		StatusCode: 200,
+		Payload:    []byte("all good"),
+	}, nil
+}
+
+func (d DummyLambdaClient) PublishVersion(ctx context.Context, input *lambda.PublishVersionInput, opts ...func(*lambda.Options)) (*lambda.PublishVersionOutput, error) {
+	if d.ConsistantAfterXRetries == nil {
+		return &lambda.PublishVersionOutput{}, fmt.Errorf("this lambda never becomes consistent")
 	}
+	if *d.ConsistantAfterXRetries > 0 {
+		*d.ConsistantAfterXRetries--
+		return &lambda.PublishVersionOutput{}, fmt.Errorf("not yet consistent")
+	}
+	return &lambda.PublishVersionOutput{
+		Version: aws.String("1"),
+	}, nil
 }
 
 type DummyIAMClient struct {
