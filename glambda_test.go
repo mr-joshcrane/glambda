@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"regexp"
 	"sync/atomic"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	iTypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -23,11 +25,36 @@ func init() {
 	glambda.UUID = func() string {
 		return "DEADBEEF"
 	}
-	glambda.AWSAccountID = func(cfg aws.Config) (string, error) {
+	glambda.AWSAccountID = func(client glambda.STSClient) (string, error) {
 		return "123456789012", nil
 	}
 	glambda.DefaultRetryWaitingPeriod = func() {
 		// No need to wait in tests
+	}
+}
+
+func TestGetAWSAccountID(t *testing.T) {
+	t.Parallel()
+	client := DummySTSClient{
+		AccountID: "123456789012",
+	}
+	got, err := glambda.GetAWSAccountID(client)
+	if err != nil {
+		t.Error(err)
+	}
+	if got != "123456789012" {
+		t.Errorf("expected 123456789012, got %s", got)
+	}
+}
+
+func TestGetAWSAccountID_ErrorCase(t *testing.T) {
+	t.Parallel()
+	client := DummySTSClient{
+		Err: fmt.Errorf("some error"),
+	}
+	_, err := glambda.GetAWSAccountID(client)
+	if err == nil {
+		t.Error("expected error, got nil")
 	}
 }
 
@@ -579,6 +606,16 @@ func TestRetryableErrors_OperationalErrorsAreRetried(t *testing.T) {
 	}
 }
 
+func TestGenerateUUID(t *testing.T) {
+	t.Parallel()
+	got := glambda.GenerateUUID()
+	// 8 alphanumeric characters, no dashes, underscores or capitals
+	criteria := regexp.MustCompile(`^[a-z0-9]{8}$`)
+	if !criteria.MatchString(got) {
+		t.Errorf("expected 8 alphanumeric characters, got %s", got)
+	}
+}
+
 type DummyLambdaClient struct {
 	ConsistantAfterXRetries *int
 	funcExists              bool
@@ -670,4 +707,19 @@ func (d DummyIAMClient) GetRole(ctx context.Context, input *iam.GetRoleInput, op
 		}, nil
 	}
 	return &iam.GetRoleOutput{}, new(iTypes.NoSuchEntityException)
+}
+
+type DummySTSClient struct {
+	AccountID string
+	Err       error
+}
+
+func (d DummySTSClient) GetCallerIdentity(ctx context.Context, input *sts.GetCallerIdentityInput, opts ...func(*sts.Options)) (*sts.GetCallerIdentityOutput, error) {
+	if d.Err != nil {
+		return nil, d.Err
+	}
+	return &sts.GetCallerIdentityOutput{
+		Account: aws.String(d.AccountID),
+	}, nil
+
 }

@@ -25,20 +25,23 @@ var (
 	ThisAWSAccountCondition     = `"Condition":{"StringEquals":{"aws:PrincipalAccount": "${aws:accountId}"}}"`
 )
 
-var UUID = func() string {
+var UUID = GenerateUUID
+var AWSAccountID = GetAWSAccountID
+
+func GenerateUUID() string {
 	id := uuid.New().String()
 	id = strings.ReplaceAll(id, ":", "")
 	return id[0:8]
 }
 
-var AWSAccountID = func(cfg aws.Config) (string, error) {
-	stsClient := sts.NewFromConfig(cfg)
-	resp, err := stsClient.GetCallerIdentity(context.Background(), &sts.GetCallerIdentityInput{})
+func GetAWSAccountID(client STSClient) (string, error) {
+	resp, err := client.GetCallerIdentity(context.Background(), &sts.GetCallerIdentityInput{})
 	if err != nil {
 		return "", err
 	}
 	return *resp.Account, nil
 }
+
 var DefaultRetryWaitingPeriod = func() {
 	time.Sleep(3 * time.Second)
 }
@@ -82,7 +85,7 @@ func NewLambda(name, handlerPath string) (*Lambda, error) {
 		return nil, err
 	}
 
-	accountID, err := AWSAccountID(awsConfig)
+	accountID, err := AWSAccountID(sts.NewFromConfig(awsConfig))
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +177,10 @@ type IAMClient interface {
 	GetRole(ctx context.Context, params *iam.GetRoleInput, optFns ...func(*iam.Options)) (*iam.GetRoleOutput, error)
 	AttachRolePolicy(ctx context.Context, params *iam.AttachRolePolicyInput, optFns ...func(*iam.Options)) (*iam.AttachRolePolicyOutput, error)
 	PutRolePolicy(ctx context.Context, params *iam.PutRolePolicyInput, optFns ...func(*iam.Options)) (*iam.PutRolePolicyOutput, error)
+}
+
+type STSClient interface {
+	GetCallerIdentity(ctx context.Context, params *sts.GetCallerIdentityInput, optFns ...func(*sts.Options)) (*sts.GetCallerIdentityOutput, error)
 }
 
 type Action interface {
