@@ -13,6 +13,7 @@ import (
 	iTypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/aws/smithy-go"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/mr-joshcrane/glambda"
@@ -535,29 +536,48 @@ func TestCreateRoleActionDo_AttachesManagedPolicies(t *testing.T) {
 	}
 }
 
-// func TestRetryableErrors_OperationalErrorsAreRetried(t *testing.T) {
-// 	t.Parallel()
-// 	testCases := []struct {
-// 		description string
-// 		err         error
-// 		want        aws.Ternary
-// 	}{
-// 		{
-// 			description: "ResourceNotFoundException",
-// 			err:         smithy.InvalidParamError,
-// 			want:        aws.TrueTernary,
-// 		},
-// 	}
-// 	for _, tc := range testCases {
-// 		t.Run(tc.description, func(t *testing.T) {
-// 			r := glambda.RetryableErrors{}
-// 			got := r.IsErrorRetryable(tc.err)
-// 			if got != tc.want {
-// 				t.Errorf("expected %v, got %v", tc.want, got)
-// 			}
-// 		})
-// 	}
-// }
+func TestRetryableErrors_OperationalErrorsAreRetried(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		description string
+		err         error
+		want        aws.Ternary
+	}{
+		{
+			description: "ResourceNotFoundException",
+			err: &smithy.OperationError{
+				ServiceID:     "lambda",
+				OperationName: "GetFunction",
+				Err: &types.ResourceNotFoundException{
+					Message: aws.String("Resource not found"),
+					Type:    aws.String("ResourceNotFoundException"),
+				},
+			},
+			want: aws.FalseTernary,
+		},
+		{
+			description: "InvalidParameterValueException",
+			err: &smithy.OperationError{
+				ServiceID:     "lambda",
+				OperationName: "GetFunction",
+				Err: &types.InvalidParameterValueException{
+					Message: aws.String("The role defined for the function cannot be assumed by Lambda"),
+					Type:    aws.String("InvalidParameterValueException"),
+				},
+			},
+			want: aws.TrueTernary,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			r := glambda.RetryableErrors{}
+			got := r.IsErrorRetryable(tc.err)
+			if got != tc.want {
+				t.Errorf("for %s: expected %v, got %v", tc.description, tc.want, got)
+			}
+		})
+	}
+}
 
 type DummyLambdaClient struct {
 	ConsistantAfterXRetries *int

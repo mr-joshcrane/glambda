@@ -54,7 +54,7 @@ type Lambda struct {
 
 func customRetryer() aws.Retryer {
 	return retry.NewStandard(func(o *retry.StandardOptions) {
-		o.MaxAttempts = 100
+		o.MaxAttempts = 10
 		o.Retryables = append(o.Retryables, RetryableErrors{})
 	})
 }
@@ -62,12 +62,14 @@ func customRetryer() aws.Retryer {
 type RetryableErrors struct{}
 
 func (r RetryableErrors) IsErrorRetryable(err error) aws.Ternary {
-	if errors.Is(err, &smithy.OperationError{}) {
-		if strings.Contains(err.Error(), "InvalidParameterValueException: The role defined for the function cannot be assumed by Lambda") {
+	var opErr *smithy.OperationError
+	if errors.As(err, &opErr) {
+		var lambdaErr *types.InvalidParameterValueException
+		if errors.As(err, &lambdaErr) {
 			return aws.TrueTernary
 		}
 	}
-	return aws.UnknownTernary
+	return aws.FalseTernary
 }
 
 func NewLambda(name, handlerPath string) (*Lambda, error) {
