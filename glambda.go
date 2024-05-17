@@ -2,6 +2,7 @@ package glambda
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -51,7 +52,7 @@ type Lambda struct {
 	HandlerPath    string
 	ExecutionRole  ExecutionRole
 	AWSAccountID   string
-	CallingService string
+	ResourcePolicy ResourcePolicy
 	cfg            aws.Config
 }
 
@@ -84,6 +85,9 @@ func NewLambda(name, handlerPath string) (*Lambda, error) {
 	if err != nil {
 		return nil, err
 	}
+	if awsConfig.Region == "" {
+		return nil, fmt.Errorf("unable to determine AWS region. Try setting the AWS_REGION environment variable")
+	}
 
 	accountID, err := AWSAccountID(sts.NewFromConfig(awsConfig))
 	if err != nil {
@@ -94,7 +98,7 @@ func NewLambda(name, handlerPath string) (*Lambda, error) {
 	return &Lambda{
 		Name:           name,
 		HandlerPath:    handlerPath,
-		CallingService: "events.amazonaws.com",
+		ResourcePolicy: ResourcePolicy{},
 		ExecutionRole: ExecutionRole{
 			RoleName:                 roleName,
 			RoleARN:                  roleARN,
@@ -106,6 +110,13 @@ func NewLambda(name, handlerPath string) (*Lambda, error) {
 		cfg:          awsConfig,
 		AWSAccountID: accountID,
 	}, nil
+}
+
+type ResourcePolicy struct {
+	Principal               string
+	SourceAccountCondition  *string
+	SourceArnCondition      *string
+	PrincipalOrgIdCondition *string
 }
 
 type ExecutionRole struct {
@@ -138,13 +149,18 @@ func (e ExecutionRole) AttachInLinePolicyCommand(policyName string) iam.PutRoleP
 	}
 }
 
-func (l Lambda) CreateLambdaResourcePolicy() lambda.AddPermissionInput {
-	return lambda.AddPermissionInput{
-		Action:        aws.String("lambda:InvokeFunction"),
-		FunctionName:  aws.String(l.Name),
-		StatementId:   aws.String("glambda_invoke_permission_" + UUID()),
-		Principal:     aws.String(l.CallingService),
-		SourceAccount: aws.String(l.AWSAccountID),
+func (l Lambda) CreateLambdaResourcePolicy() *lambda.AddPermissionInput {
+	if l.ResourcePolicy.Principal == "" {
+		return nil
+	}
+	return &lambda.AddPermissionInput{
+		Action:         aws.String("lambda:InvokeFunction"),
+		FunctionName:   aws.String(l.Name),
+		StatementId:    aws.String("glambda_invoke_permission_" + UUID()),
+		Principal:      aws.String(l.ResourcePolicy.Principal),
+		SourceAccount:  l.ResourcePolicy.SourceAccountCondition,
+		SourceArn:      l.ResourcePolicy.SourceArnCondition,
+		PrincipalOrgID: l.ResourcePolicy.PrincipalOrgIdCondition,
 	}
 }
 
@@ -195,7 +211,7 @@ type LambdaAction interface {
 type LambdaCreateAction struct {
 	client                LambdaClient
 	CreateLambdaCommand   *lambda.CreateFunctionInput
-	ResourcePolicyCommand lambda.AddPermissionInput
+	ResourcePolicyCommand *lambda.AddPermissionInput
 	Name                  string
 }
 
@@ -218,14 +234,14 @@ func (a LambdaCreateAction) Do() error {
 	if err != nil {
 		return err
 	}
-	_, err = client.AddPermission(context.Background(), &a.ResourcePolicyCommand)
+	_, err = client.AddPermission(context.Background(), a.ResourcePolicyCommand)
 	return err
 }
 
 type LambdaUpdateAction struct {
 	client                LambdaClient
 	UpdateLambdaCommand   *lambda.UpdateFunctionCodeInput
-	ResourcePolicyCommand lambda.AddPermissionInput
+	ResourcePolicyCommand *lambda.AddPermissionInput
 	Name                  string
 }
 
@@ -450,10 +466,56 @@ func WaitForConsistency(c LambdaClient, name string) (string, error) {
 	return "", fmt.Errorf("waited for lambda become consistent, but didn't after %d retries", retryLimit)
 }
 
-func Deploy(name, source string) error {
+type DeployOptions func(*Lambda) error
+
+func WithManagedPolicies(policies string) DeployOptions {
+	return func(l *Lambda) error {
+		if policies == "" {
+			return nil
+		}
+		l.ExecutionRole.ManagedPolicies = strings.Split(policies, ",")
+		return nil
+	}
+}
+
+func WithInlinePolicy(policy string) DeployOptions {
+	return func(l *Lambda) error {
+		if policy == "" {
+			return nil
+		}
+		_, err := json.Marshal(policy)
+		if err != nil {
+			return fmt.Errorf("parsing failure for inlinePolicy: %w", err)
+		}
+		l.ExecutionRole.InLinePolicy = policy
+		return nil
+	}
+}
+
+func WithResourcePolicy(policy string) DeployOptions {
+	return func(l *Lambda) error {
+		if policy == "" {
+			return nil
+		}
+		policy, err := ParseResourcePolicy(policy)
+		if err != nil {
+			return err
+		}
+		l.ResourcePolicy = policy
+		return nil
+	}
+}
+
+func Deploy(name, source string, opts ...DeployOptions) error {
 	l, err := NewLambda(name, source)
 	if err != nil {
 		return err
+	}
+	for _, opt := range opts {
+		err := opt(l)
+		if err != nil {
+			return err
+		}
 	}
 	err = l.Deploy()
 	if err != nil {

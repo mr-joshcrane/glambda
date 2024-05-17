@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"sync/atomic"
 	"testing"
@@ -22,6 +23,8 @@ import (
 )
 
 func init() {
+	os.Setenv("AWS_DEFAULT_REGION", "us-east-1")
+
 	glambda.UUID = func() string {
 		return "DEADBEEF"
 	}
