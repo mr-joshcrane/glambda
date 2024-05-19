@@ -619,6 +619,27 @@ func TestGenerateUUID(t *testing.T) {
 	}
 }
 
+func TestCreateLambdaResourcePolicy(t *testing.T) {
+	t.Parallel()
+	l := glambda.Lambda{
+		Name: "testLambda",
+		ResourcePolicy: glambda.ResourcePolicy{
+			Principal: "123456789012",
+		},
+	}
+	got := l.CreateLambdaResourcePolicy()
+	want := &lambda.AddPermissionInput{
+		Action:       aws.String("lambda:InvokeFunction"),
+		FunctionName: aws.String("testLambda"),
+		Principal:    aws.String("123456789012"),
+		StatementId:  aws.String("glambda_invoke_permission_DEADBEEF"),
+	}
+	ignore := cmpopts.IgnoreUnexported(lambda.AddPermissionInput{})
+	if !cmp.Equal(got, want, ignore) {
+		t.Error(cmp.Diff(got, want, ignore))
+	}
+}
+
 type DummyLambdaClient struct {
 	ConsistantAfterXRetries *int
 	funcExists              bool
