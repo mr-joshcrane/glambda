@@ -58,7 +58,7 @@ type Lambda struct {
 
 func customRetryer() aws.Retryer {
 	return retry.NewStandard(func(o *retry.StandardOptions) {
-		o.MaxAttempts = 10
+		o.MaxAttempts = 20
 		o.Retryables = append(o.Retryables, RetryableErrors{})
 	})
 }
@@ -233,6 +233,9 @@ func (a LambdaCreateAction) Do() error {
 	_, err := client.CreateFunction(context.Background(), a.CreateLambdaCommand)
 	if err != nil {
 		return err
+	}
+	if a.ResourcePolicyCommand == nil {
+		return nil
 	}
 	_, err = client.AddPermission(context.Background(), a.ResourcePolicyCommand)
 	return err
@@ -506,6 +509,13 @@ func WithResourcePolicy(policy string) DeployOptions {
 	}
 }
 
+func WithAWSConfig(cfg aws.Config) DeployOptions {
+	return func(l *Lambda) error {
+		l.cfg = cfg
+		return nil
+	}
+}
+
 func Deploy(name, source string, opts ...DeployOptions) error {
 	l, err := NewLambda(name, source)
 	if err != nil {
@@ -522,4 +532,46 @@ func Deploy(name, source string, opts ...DeployOptions) error {
 		return err
 	}
 	return l.Test()
+}
+
+func Delete(name string) error {
+	l, err := NewLambda(name, "")
+	if err != nil {
+		return err
+	}
+	lambdaClient := lambda.NewFromConfig(l.cfg)
+	fnInfo, err := lambdaClient.GetFunction(context.Background(), &lambda.GetFunctionInput{
+		FunctionName: aws.String(name),
+	})
+	if err != nil {
+		return err
+	}
+	roleArn := *fnInfo.Configuration.Role
+	_, err = lambdaClient.DeleteFunction(context.Background(), &lambda.DeleteFunctionInput{
+		FunctionName: aws.String(name),
+	})
+	if err != nil {
+		return err
+	}
+	iamClient := iam.NewFromConfig(l.cfg)
+	roleName := strings.Split(roleArn, "/")[1]
+	attachedPolicies, err := iamClient.ListAttachedRolePolicies(context.Background(), &iam.ListAttachedRolePoliciesInput{
+		RoleName: aws.String(roleName),
+	})
+	if err != nil {
+		return err
+	}
+	for _, policy := range attachedPolicies.AttachedPolicies {
+		_, err = iamClient.DetachRolePolicy(context.Background(), &iam.DetachRolePolicyInput{
+			PolicyArn: policy.PolicyArn,
+			RoleName:  aws.String(roleName),
+		})
+		if err != nil {
+			return err
+		}
+	}
+	_, err = iamClient.DeleteRole(context.Background(), &iam.DeleteRoleInput{
+		RoleName: aws.String(roleName),
+	})
+	return err
 }

@@ -18,10 +18,7 @@ func TestMain_ReturnsErrorAndHelpOnInvalidArgs(t *testing.T) {
 			description: "no args",
 			args:        []string{},
 		},
-		{
-			description: "partial command",
-			args:        []string{"deploy", "myFunctionName"},
-		},
+
 		{
 			description: "invalid args",
 			args:        []string{"invalid"},

@@ -24,6 +24,7 @@ func Main(args []string, opts ...CommandOptions) error {
 	rootCmd.SetArgs(args)
 	commands := []*cobra.Command{
 		DeployCommand(),
+		DeleteCommand(),
 	}
 	for _, opt := range opts {
 		err := opt(rootCmd)
@@ -49,10 +50,11 @@ func Main(args []string, opts ...CommandOptions) error {
 
 func DeployCommand() *cobra.Command {
 	var deployCmd = &cobra.Command{
-		Use:     "deploy functionName sourceCodePath",
-		Short:   "Package a Go binary and upload it as a lambda function.",
-		Args:    cobra.ExactArgs(2),
-		Example: `glambda deploy myFunctionName /path/to/sourceCode.go`,
+		Use:          "deploy functionName sourceCodePath",
+		Short:        "Package a Go binary and upload it as a lambda function.",
+		Args:         cobra.ExactArgs(2),
+		SilenceUsage: true,
+		Example:      `glambda deploy myFunctionName /path/to/sourceCode.go`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			functionName := args[0]
 			sourceCodePath := args[1]
@@ -70,4 +72,19 @@ func DeployCommand() *cobra.Command {
 	deployCmd.Flags().String("inline-policy", "", "Inline policy to attach to the lambda function.")
 	deployCmd.Flags().String("resource-policy", "", "Resource policy to attach to the lambda function.")
 	return deployCmd
+}
+
+func DeleteCommand() *cobra.Command {
+	var deleteCmd = &cobra.Command{
+		Use:          "delete functionName",
+		Short:        "Delete a lambda function.",
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
+		Example:      `glambda delete myFunctionName`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			functionName := args[0]
+			return Delete(functionName)
+		},
+	}
+	return deleteCmd
 }

@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	err := glambda.Main(os.Args)
+	err := glambda.Main(os.Args[1:])
 	if err != nil {
 		os.Exit(1)
 	}
