@@ -619,7 +619,7 @@ func TestGenerateUUID(t *testing.T) {
 	}
 }
 
-func TestCreateLambdaResourcePolicy(t *testing.T) {
+func TestCreateLambdaResourcePolicy_NoConditions(t *testing.T) {
 	t.Parallel()
 	l := glambda.Lambda{
 		Name: "testLambda",
@@ -633,6 +633,33 @@ func TestCreateLambdaResourcePolicy(t *testing.T) {
 		FunctionName: aws.String("testLambda"),
 		Principal:    aws.String("123456789012"),
 		StatementId:  aws.String("glambda_invoke_permission_DEADBEEF"),
+	}
+	ignore := cmpopts.IgnoreUnexported(lambda.AddPermissionInput{})
+	if !cmp.Equal(got, want, ignore) {
+		t.Error(cmp.Diff(got, want, ignore))
+	}
+}
+
+func TestCreateLambdaResourcePolicy_WithConditons(t *testing.T) {
+	t.Parallel()
+	l := glambda.Lambda{
+		Name: "testLambda",
+		ResourcePolicy: glambda.ResourcePolicy{
+			Principal:               "s3.amazonaws.com",
+			SourceAccountCondition:  aws.String("123456789012"),
+			SourceArnCondition:      aws.String("arn:aws:s3:::mybucket"),
+			PrincipalOrgIdCondition: aws.String("o-123456"),
+		},
+	}
+	got := l.CreateLambdaResourcePolicy()
+	want := &lambda.AddPermissionInput{
+		Action:         aws.String("lambda:InvokeFunction"),
+		FunctionName:   aws.String("testLambda"),
+		Principal:      aws.String("s3.amazonaws.com"),
+		StatementId:    aws.String("glambda_invoke_permission_DEADBEEF"),
+		SourceAccount:  aws.String("123456789012"),
+		SourceArn:      aws.String("arn:aws:s3:::mybucket"),
+		PrincipalOrgID: aws.String("o-123456"),
 	}
 	ignore := cmpopts.IgnoreUnexported(lambda.AddPermissionInput{})
 	if !cmp.Equal(got, want, ignore) {
