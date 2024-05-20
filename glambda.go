@@ -140,29 +140,6 @@ func (a LambdaUpdateAction) Do() error {
 	return err
 }
 
-type LambdaDeleteAction struct {
-	client              LambdaClient
-	DeleteLambdaCommand *lambda.DeleteFunctionInput
-}
-
-func NewLambdaDeleteAction(client LambdaClient, name string) LambdaDeleteAction {
-	return LambdaDeleteAction{
-		client: client,
-		DeleteLambdaCommand: &lambda.DeleteFunctionInput{
-			FunctionName: aws.String(name),
-		},
-	}
-}
-
-func (a LambdaDeleteAction) Client() LambdaClient {
-	return a.client
-}
-
-func (a LambdaDeleteAction) Do() error {
-	_, err := a.client.DeleteFunction(context.Background(), a.DeleteLambdaCommand)
-	return err
-}
-
 type RoleAction interface {
 	Client() IAMClient
 	Do() error
