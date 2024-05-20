@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
@@ -417,23 +419,6 @@ func TestPrepareRoleAction_AttachesMultipleManagedPolicies(t *testing.T) {
 	}
 }
 
-func TestExpandManagedPolicies_AcceptsManagedPoliciesByNamesOrByARN(t *testing.T) {
-	t.Parallel()
-	userSuppliedPolicies := []string{
-		"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
-		"AmazonDynamoDBReadOnlyAccess",
-	}
-
-	got := glambda.ExpandManagedPolicies(userSuppliedPolicies)
-	want := []string{
-		"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
-		"arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess",
-	}
-	if !cmp.Equal(want, got) {
-		t.Error(cmp.Diff(want, got))
-	}
-}
-
 func TestWaitForConsistency_PassesForConsistentVersion(t *testing.T) {
 	t.Parallel()
 	client := mock.DummyLambdaClient{
@@ -668,10 +653,52 @@ func TestWithManagedPolicies_ParsesMessyUserInputIntoExecutionManagePolicies(t *
 	want := []string{
 		"arn:aws:iam::aws:policy/IAMFullAccess",
 		"arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess",
-		"AmazonS3ReadOnlyAccess",
+		"arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess",
 	}
 	got := l.ExecutionRole.ManagedPolicies
 	if !cmp.Equal(want, got) {
 		t.Error(cmp.Diff(got, want))
+	}
+}
+
+func TestWithInlinePolicy_ParsesMessyUserInputIntoExecutionInlinePolicy(t *testing.T) {
+	t.Parallel()
+	l := glambda.Lambda{
+		Name: "testLambda",
+		ExecutionRole: glambda.ExecutionRole{
+			RoleName: "aRoleName",
+		},
+	}
+	policy := `
+		{
+			"Version": "2012-10-17",
+			"Statement": [
+				{
+					"Effect": "Allow",
+					"Action": "logs:CreateLogGroup",
+					"Resource": "arn:aws:logs:us-west-2:123456789012:*"
+				},
+				{
+					"Effect": "Allow",
+					"Action": "logs:CreateLogStream",
+					"Resource": "arn:aws:logs:us-west-2:123456789012:log-group:/aws/lambda/test:*"
+				}
+			]
+		}`
+
+	opt := glambda.WithInlinePolicy(policy)
+	err := opt(&l)
+	if err != nil {
+		t.Error(err)
+	}
+	want := strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, policy)
+	got := l.ExecutionRole.InLinePolicy
+	if !cmp.Equal(want, got) {
+		t.Error(cmp.Diff(want, got))
 	}
 }

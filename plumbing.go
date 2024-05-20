@@ -116,19 +116,6 @@ var DefaultRetryWaitingPeriod = func() {
 	time.Sleep(3 * time.Second)
 }
 
-func ExpandManagedPolicies(policyARNs []string) []string {
-	var expandedPolicyArns []string
-	for _, policyARN := range policyARNs {
-		if strings.HasPrefix(policyARN, "arn:") {
-			expandedPolicyArns = append(expandedPolicyArns, policyARN)
-
-		} else {
-			expandedPolicyArns = append(expandedPolicyArns, "arn:aws:iam::aws:policy/"+policyARN)
-		}
-	}
-	return expandedPolicyArns
-}
-
 func WaitForConsistency(c LambdaClient, name string) (string, error) {
 	retryLimit := 10
 	for i := 0; true; i++ {

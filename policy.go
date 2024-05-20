@@ -1,9 +1,11 @@
 package glambda
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
@@ -19,10 +21,12 @@ func removeQuotes(s string) string {
 }
 
 func removeWhitespace(s string) string {
-	s = strings.ReplaceAll(s, "\n", "")
-	s = strings.ReplaceAll(s, "\t", "")
-	s = strings.ReplaceAll(s, " ", "")
-	return strings.ReplaceAll(s, "\r", "")
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 func ParseResourcePolicy(policy string) (ResourcePolicy, error) {
@@ -60,4 +64,33 @@ func ParseResourcePolicy(policy string) (ResourcePolicy, error) {
 	}
 
 	return resourcePolicy, nil
+}
+
+func ParseManagedPolicy(policy string) []string {
+	if policy == "" {
+		return []string{}
+	}
+	policy = removeWhitespace(policy)
+	policy = removeQuotes(policy)
+	policies := strings.Split(policy, ",")
+	var expandedPolicyArns []string
+	for _, p := range policies {
+		if strings.HasPrefix(p, "arn:") {
+			expandedPolicyArns = append(expandedPolicyArns, p)
+		} else {
+			expandedPolicyArns = append(expandedPolicyArns, "arn:aws:iam::aws:policy/"+p)
+		}
+	}
+	return expandedPolicyArns
+}
+
+func ParseInlinePolicy(policy string) (string, error) {
+	if policy == "" {
+		return "", fmt.Errorf("inlinePolicy is empty")
+	}
+	_, err := json.Marshal(policy)
+	if err != nil {
+		return "", fmt.Errorf("parsing failure for inlinePolicy: %w", err)
+	}
+	return removeWhitespace(policy), nil
 }

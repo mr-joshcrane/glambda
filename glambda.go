@@ -2,7 +2,6 @@ package glambda
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -286,24 +285,16 @@ type DeployOptions func(*Lambda) error
 
 func WithManagedPolicies(policies string) DeployOptions {
 	return func(l *Lambda) error {
-		if policies == "" {
-			return nil
-		}
-		policy := removeQuotes(policies)
-		policy = removeWhitespace(policy)
-		l.ExecutionRole.ManagedPolicies = strings.Split(policy, ",")
+		l.ExecutionRole.ManagedPolicies = ParseManagedPolicy(policies)
 		return nil
 	}
 }
 
 func WithInlinePolicy(policy string) DeployOptions {
 	return func(l *Lambda) error {
-		if policy == "" {
-			return nil
-		}
-		_, err := json.Marshal(policy)
+		policy, err := ParseInlinePolicy(policy)
 		if err != nil {
-			return fmt.Errorf("parsing failure for inlinePolicy: %w", err)
+			return err
 		}
 		l.ExecutionRole.InLinePolicy = policy
 		return nil
