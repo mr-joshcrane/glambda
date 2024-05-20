@@ -142,8 +142,6 @@ func (l Lambda) CreateLambdaResourcePolicy() *lambda.AddPermissionInput {
 	}
 }
 
-type RoleOptions func(role *ExecutionRole)
-
 func ExpandManagedPolicies(policyARNs []string) []string {
 	var expandedPolicyArns []string
 	for _, policyARN := range policyARNs {
