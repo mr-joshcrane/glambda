@@ -88,7 +88,8 @@ func ParseInlinePolicy(policy string) (string, error) {
 	if policy == "" {
 		return "", fmt.Errorf("inlinePolicy is empty")
 	}
-	_, err := json.Marshal(policy)
+	var object struct{}
+	err := json.Unmarshal([]byte(policy), &object)
 	if err != nil {
 		return "", fmt.Errorf("parsing failure for inlinePolicy: %w", err)
 	}

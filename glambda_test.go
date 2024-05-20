@@ -702,3 +702,30 @@ func TestWithInlinePolicy_ParsesMessyUserInputIntoExecutionInlinePolicy(t *testi
 		t.Error(cmp.Diff(want, got))
 	}
 }
+
+func TestWithInlinePolicy_CanDetectInvalidPolicyCases(t *testing.T) {
+	testCases := []struct {
+		description string
+		policy      string
+	}{
+		{
+			description: "empty policy",
+			policy:      "",
+		},
+		{
+			description: "invalid json",
+			policy:      `{"invalid": "json}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			l := glambda.Lambda{}
+			opt := glambda.WithInlinePolicy(tc.policy)
+			err := opt(&l)
+			if err == nil {
+				t.Errorf("%s, expected error, got nil", tc.description)
+			}
+		})
+	}
+}
