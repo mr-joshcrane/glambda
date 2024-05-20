@@ -289,7 +289,9 @@ func WithManagedPolicies(policies string) DeployOptions {
 		if policies == "" {
 			return nil
 		}
-		l.ExecutionRole.ManagedPolicies = strings.Split(policies, ",")
+		policy := removeQuotes(policies)
+		policy = removeWhitespace(policy)
+		l.ExecutionRole.ManagedPolicies = strings.Split(policy, ",")
 		return nil
 	}
 }

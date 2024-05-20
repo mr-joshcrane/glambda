@@ -621,7 +621,7 @@ func TestCreateLambdaResourcePolicy_NoConditions(t *testing.T) {
 	}
 }
 
-func TestCreateLambdaResourcePolicy_WithConditons(t *testing.T) {
+func TestCreateLambdaResourcePolicy_WithConditions(t *testing.T) {
 	t.Parallel()
 	l := glambda.Lambda{
 		Name: "testLambda",
@@ -645,5 +645,33 @@ func TestCreateLambdaResourcePolicy_WithConditons(t *testing.T) {
 	ignore := cmpopts.IgnoreUnexported(lambda.AddPermissionInput{})
 	if !cmp.Equal(got, want, ignore) {
 		t.Error(cmp.Diff(got, want, ignore))
+	}
+}
+
+func TestWithManagedPolicies_ParsesMessyUserInputIntoExecutionManagePolicies(t *testing.T) {
+	t.Parallel()
+	l := glambda.Lambda{
+		Name: "testLambda",
+		ExecutionRole: glambda.ExecutionRole{
+			RoleName: "aRoleName",
+		},
+	}
+	opt := glambda.WithManagedPolicies(`
+			"arn:aws:iam::aws:policy/IAMFullAccess",
+			arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess,
+			'AmazonS3ReadOnlyAccess'
+		 `)
+	err := opt(&l)
+	if err != nil {
+		t.Error(err)
+	}
+	want := []string{
+		"arn:aws:iam::aws:policy/IAMFullAccess",
+		"arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess",
+		"AmazonS3ReadOnlyAccess",
+	}
+	got := l.ExecutionRole.ManagedPolicies
+	if !cmp.Equal(want, got) {
+		t.Error(cmp.Diff(got, want))
 	}
 }

@@ -13,6 +13,11 @@ var arnConditionRegex = regexp.MustCompile(`"ArnLike":\{"AWS:SourceArn":"([^"]+)
 var accountConditionRegex = regexp.MustCompile(`"StringEquals":\{"AWS:SourceAccount":"([^"]+)"\}`)
 var orgIdConditionRegex = regexp.MustCompile(`"StringEquals":\{"aws:PrincipalOrgID":"([^"]+)"\}`)
 
+func removeQuotes(s string) string {
+	s = strings.ReplaceAll(s, `"`, "")
+	return strings.ReplaceAll(s, `'`, "")
+}
+
 func removeWhitespace(s string) string {
 	s = strings.ReplaceAll(s, "\n", "")
 	s = strings.ReplaceAll(s, "\t", "")
