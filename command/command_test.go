@@ -1,11 +1,11 @@
-package glambda_test
+package command_test
 
 import (
 	"bytes"
 	"strings"
 	"testing"
 
-	"github.com/mr-joshcrane/glambda"
+	"github.com/mr-joshcrane/glambda/command"
 )
 
 func TestMain_ReturnsErrorAndHelpOnInvalidArgs(t *testing.T) {
@@ -28,7 +28,7 @@ func TestMain_ReturnsErrorAndHelpOnInvalidArgs(t *testing.T) {
 	for _, tt := range tc {
 		t.Run(tt.description, func(t *testing.T) {
 			buf := new(bytes.Buffer)
-			err := glambda.Main(tt.args, glambda.WithOutput(buf))
+			err := command.Main(tt.args, command.WithOutput(buf))
 			if err == nil {
 				t.Errorf("Expected error but got nil")
 			}

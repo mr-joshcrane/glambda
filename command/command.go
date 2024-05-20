@@ -1,10 +1,11 @@
-package glambda
+package command
 
 import (
 	"fmt"
 	"io"
 
 	"github.com/spf13/cobra"
+	"github.com/mr-joshcrane/glambda"
 )
 
 type CommandOptions func(*cobra.Command) error
@@ -61,10 +62,10 @@ func DeployCommand() *cobra.Command {
 			managedPolicies, _ := cmd.Flags().GetString("managed-policies")
 			inlinePolicy, _ := cmd.Flags().GetString("inline-policy")
 			resourcePolicy, _ := cmd.Flags().GetString("resource-policy")
-			return Deploy(functionName, sourceCodePath,
-				WithManagedPolicies(managedPolicies),
-				WithInlinePolicy(inlinePolicy),
-				WithResourcePolicy(resourcePolicy),
+			return glambda.Deploy(functionName, sourceCodePath,
+				glambda.WithManagedPolicies(managedPolicies),
+				glambda.WithInlinePolicy(inlinePolicy),
+				glambda.WithResourcePolicy(resourcePolicy),
 			)
 		},
 	}
@@ -83,7 +84,7 @@ func DeleteCommand() *cobra.Command {
 		Example:      `glambda delete myFunctionName`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			functionName := args[0]
-			return Delete(functionName)
+			return glambda.Delete(functionName)
 		},
 	}
 	return deleteCmd

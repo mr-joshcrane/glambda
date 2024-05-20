@@ -3,11 +3,11 @@ package main
 import (
 	"os"
 
-	"github.com/mr-joshcrane/glambda"
+	"github.com/mr-joshcrane/glambda/command"
 )
 
 func main() {
-	err := glambda.Main(os.Args[1:])
+	err := command.Main(os.Args[1:])
 	if err != nil {
 		os.Exit(1)
 	}
