@@ -141,13 +141,11 @@ func TestPrepareAction_CreateFunction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := action.(glambda.LambdaCreateAction)
+	_, ok := action.(glambda.LambdaCreateAction)
 	if !ok {
 		t.Errorf("expected CreateAction, got %T", action)
 	}
-	if got.Name != "test" {
-		t.Errorf("expected name to be test, got %s", got.Name)
-	}
+
 }
 
 func TestPrepareAction_UpdateFunction(t *testing.T) {
@@ -167,12 +165,9 @@ func TestPrepareAction_UpdateFunction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := action.(glambda.LambdaUpdateAction)
+	_, ok := action.(glambda.LambdaUpdateAction)
 	if !ok {
 		t.Errorf("expected UpdateAction, got %T", action)
-	}
-	if got.Name != "test" {
-		t.Errorf("expected name to be test, got %s", got.Name)
 	}
 }
 

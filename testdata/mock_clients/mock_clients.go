@@ -64,6 +64,10 @@ func (d DummyLambdaClient) AddPermission(ctx context.Context, input *lambda.AddP
 	return &lambda.AddPermissionOutput{}, nil
 }
 
+func (d DummyLambdaClient) DeleteFunction(ctx context.Context, input *lambda.DeleteFunctionInput, opts ...func(*lambda.Options)) (*lambda.DeleteFunctionOutput, error) {
+	return &lambda.DeleteFunctionOutput{}, nil
+}
+
 type DummyIAMClient struct {
 	RoleExists bool
 	RoleName   string

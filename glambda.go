@@ -90,7 +90,6 @@ type LambdaCreateAction struct {
 	client                LambdaClient
 	CreateLambdaCommand   *lambda.CreateFunctionInput
 	ResourcePolicyCommand *lambda.AddPermissionInput
-	Name                  string
 }
 
 func NewLambdaCreateAction(client LambdaClient, l Lambda, pkg []byte) LambdaCreateAction {
@@ -98,7 +97,6 @@ func NewLambdaCreateAction(client LambdaClient, l Lambda, pkg []byte) LambdaCrea
 		client:                client,
 		CreateLambdaCommand:   CreateLambdaCommand(l.Name, l.ExecutionRole.RoleARN, pkg),
 		ResourcePolicyCommand: l.CreateLambdaResourcePolicy(),
-		Name:                  l.Name,
 	}
 }
 
@@ -123,7 +121,6 @@ type LambdaUpdateAction struct {
 	client                LambdaClient
 	UpdateLambdaCommand   *lambda.UpdateFunctionCodeInput
 	ResourcePolicyCommand *lambda.AddPermissionInput
-	Name                  string
 }
 
 func NewLambdaUpdateAction(client LambdaClient, l Lambda, pkg []byte) LambdaUpdateAction {
@@ -131,7 +128,6 @@ func NewLambdaUpdateAction(client LambdaClient, l Lambda, pkg []byte) LambdaUpda
 		client:                client,
 		UpdateLambdaCommand:   UpdateLambdaCommand(l.Name, pkg),
 		ResourcePolicyCommand: l.CreateLambdaResourcePolicy(),
-		Name:                  l.Name,
 	}
 }
 
@@ -142,6 +138,29 @@ func (a LambdaUpdateAction) Client() LambdaClient {
 func (a LambdaUpdateAction) Do() error {
 	client := a.Client()
 	_, err := client.UpdateFunctionCode(context.Background(), a.UpdateLambdaCommand)
+	return err
+}
+
+type LambdaDeleteAction struct {
+	client              LambdaClient
+	DeleteLambdaCommand *lambda.DeleteFunctionInput
+}
+
+func NewLambdaDeleteAction(client LambdaClient, name string) LambdaDeleteAction {
+	return LambdaDeleteAction{
+		client: client,
+		DeleteLambdaCommand: &lambda.DeleteFunctionInput{
+			FunctionName: aws.String(name),
+		},
+	}
+}
+
+func (a LambdaDeleteAction) Client() LambdaClient {
+	return a.client
+}
+
+func (a LambdaDeleteAction) Do() error {
+	_, err := a.client.DeleteFunction(context.Background(), a.DeleteLambdaCommand)
 	return err
 }
 
