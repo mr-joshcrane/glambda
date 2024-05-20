@@ -3,23 +3,20 @@ package glambda_test
 import (
 	"archive/zip"
 	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"regexp"
-	"sync/atomic"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
-	iTypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
-	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/mr-joshcrane/glambda"
+	mock "github.com/mr-joshcrane/glambda/testdata/mock_clients"
 )
 
 func init() {
@@ -38,7 +35,7 @@ func init() {
 
 func TestGetAWSAccountID(t *testing.T) {
 	t.Parallel()
-	client := DummySTSClient{
+	client := mock.DummySTSClient{
 		AccountID: "123456789012",
 	}
 	got, err := glambda.GetAWSAccountID(client)
@@ -52,7 +49,7 @@ func TestGetAWSAccountID(t *testing.T) {
 
 func TestGetAWSAccountID_ErrorCase(t *testing.T) {
 	t.Parallel()
-	client := DummySTSClient{
+	client := mock.DummySTSClient{
 		Err: fmt.Errorf("some error"),
 	}
 	_, err := glambda.GetAWSAccountID(client)
@@ -141,9 +138,9 @@ func TestExecutionRole_AttachInLinePolicyCommand(t *testing.T) {
 func TestPrepareAction_CreateFunction(t *testing.T) {
 	t.Parallel()
 
-	client := DummyLambdaClient{
-		funcExists: false,
-		err:        nil,
+	client := mock.DummyLambdaClient{
+		FuncExists: false,
+		Err:        nil,
 	}
 	handler := "testdata/correct_test_handler/main.go"
 	l := glambda.Lambda{
@@ -166,9 +163,9 @@ func TestPrepareAction_CreateFunction(t *testing.T) {
 
 func TestPrepareAction_UpdateFunction(t *testing.T) {
 	t.Parallel()
-	client := DummyLambdaClient{
-		funcExists: true,
-		err:        nil,
+	client := mock.DummyLambdaClient{
+		FuncExists: true,
+		Err:        nil,
 	}
 	handler := "testdata/correct_test_handler/main.go"
 	l := glambda.Lambda{
@@ -192,9 +189,9 @@ func TestPrepareAction_UpdateFunction(t *testing.T) {
 
 func TestPrepareAction_ErrorCase(t *testing.T) {
 	t.Parallel()
-	client := DummyLambdaClient{
-		funcExists: false,
-		err:        fmt.Errorf("some client error"),
+	client := mock.DummyLambdaClient{
+		FuncExists: false,
+		Err:        fmt.Errorf("some client error"),
 	}
 	handler := "testdata/correct_test_handler/main.go"
 	l := glambda.Lambda{
@@ -349,7 +346,7 @@ func TestPrepareRoleAction_CreatesRoleWhenRoleDoesNotExist(t *testing.T) {
 	got, err := glambda.PrepareRoleAction(glambda.ExecutionRole{
 		RoleName:                 "aRoleName",
 		AssumeRolePolicyDocument: glambda.DefaultAssumeRolePolicy,
-	}, DummyIAMClient{
+	}, mock.DummyIAMClient{
 		RoleExists: false,
 	})
 	if err != nil {
@@ -378,7 +375,7 @@ func TestPrepareRoleAction_DoesNotCreateRoleWhenRoleExists(t *testing.T) {
 	got, err := glambda.PrepareRoleAction(glambda.ExecutionRole{
 		RoleName:                 "aRoleName",
 		AssumeRolePolicyDocument: glambda.DefaultAssumeRolePolicy,
-	}, DummyIAMClient{
+	}, mock.DummyIAMClient{
 		RoleExists: true,
 	})
 	if err != nil {
@@ -404,7 +401,7 @@ func TestPrepareRoleAction_AttachesMultipleManagedPolicies(t *testing.T) {
 		RoleName:                 "aRoleName",
 		AssumeRolePolicyDocument: glambda.DefaultAssumeRolePolicy,
 		ManagedPolicies:          []string{"arn:aws:iam::aws:policy/IAMFullAccess", "arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess"},
-	}, DummyIAMClient{
+	}, mock.DummyIAMClient{
 		RoleExists: false,
 	})
 	if err != nil {
@@ -455,7 +452,7 @@ func TestExpandManagedPolicies_AcceptsManagedPoliciesByNamesOrByARN(t *testing.T
 
 func TestWaitForConsistency_PassesForConsistentVersion(t *testing.T) {
 	t.Parallel()
-	client := DummyLambdaClient{
+	client := mock.DummyLambdaClient{
 		ConsistantAfterXRetries: aws.Int(8),
 	}
 	_, err := glambda.WaitForConsistency(client, "testLambda")
@@ -466,7 +463,7 @@ func TestWaitForConsistency_PassesForConsistentVersion(t *testing.T) {
 
 func TestWaitForConsistency_FailsForInconsistentVersion(t *testing.T) {
 	t.Parallel()
-	client := DummyLambdaClient{}
+	client := mock.DummyLambdaClient{}
 	_, err := glambda.WaitForConsistency(client, "testLambda")
 	if err == nil {
 		t.Error("expected error, got nil")
@@ -475,8 +472,8 @@ func TestWaitForConsistency_FailsForInconsistentVersion(t *testing.T) {
 
 func TestUpdateLambdaActionDo(t *testing.T) {
 	t.Parallel()
-	client := DummyLambdaClient{
-		funcExists: true,
+	client := mock.DummyLambdaClient{
+		FuncExists: true,
 	}
 	action := glambda.NewLambdaUpdateAction(client, glambda.Lambda{Name: "testLambda"}, []byte("some valid zip data"))
 	err := action.Do()
@@ -487,8 +484,8 @@ func TestUpdateLambdaActionDo(t *testing.T) {
 
 func TestCreateLambdaActionDo(t *testing.T) {
 	t.Parallel()
-	client := DummyLambdaClient{
-		funcExists: false,
+	client := mock.DummyLambdaClient{
+		FuncExists: false,
 	}
 	action := glambda.NewLambdaCreateAction(client, glambda.Lambda{Name: "testLambda"}, []byte("some valid zip data"))
 	err := action.Do()
@@ -499,7 +496,7 @@ func TestCreateLambdaActionDo(t *testing.T) {
 
 func TestCreateRoleActionDo_IfRoleDoesNotExist(t *testing.T) {
 	t.Parallel()
-	client := DummyIAMClient{
+	client := mock.DummyIAMClient{
 		RoleExists: false,
 	}
 	action := glambda.NewRoleCreateOrUpdateAction(client)
@@ -515,7 +512,7 @@ func TestCreateRoleActionDo_IfRoleDoesNotExist(t *testing.T) {
 
 func TestCreateRoleActionDo_FailsIfRoleExists(t *testing.T) {
 	t.Parallel()
-	client := DummyIAMClient{
+	client := mock.DummyIAMClient{
 		RoleExists: true,
 	}
 	action := glambda.NewRoleCreateOrUpdateAction(client)
@@ -532,9 +529,9 @@ func TestCreateRoleActionDo_FailsIfRoleExists(t *testing.T) {
 func TestCreateRoleActionDo_AttachesManagedPolicies(t *testing.T) {
 	t.Parallel()
 	var clientCallCounter int32
-	client := DummyIAMClient{
+	client := mock.DummyIAMClient{
 		RoleExists: false,
-		counter:    &clientCallCounter,
+		Counter:    &clientCallCounter,
 	}
 	action := glambda.NewRoleCreateOrUpdateAction(client)
 	action.CreateRole = &iam.CreateRoleInput{
@@ -665,112 +662,4 @@ func TestCreateLambdaResourcePolicy_WithConditons(t *testing.T) {
 	if !cmp.Equal(got, want, ignore) {
 		t.Error(cmp.Diff(got, want, ignore))
 	}
-}
-
-type DummyLambdaClient struct {
-	ConsistantAfterXRetries *int
-	funcExists              bool
-	err                     error
-}
-
-func (d DummyLambdaClient) GetFunction(ctx context.Context, input *lambda.GetFunctionInput, opts ...func(*lambda.Options)) (*lambda.GetFunctionOutput, error) {
-	if d.funcExists {
-		return &lambda.GetFunctionOutput{}, nil
-	}
-	if !d.funcExists && d.err == nil {
-		return &lambda.GetFunctionOutput{}, new(types.ResourceNotFoundException)
-	}
-	if d.err != nil {
-		return &lambda.GetFunctionOutput{}, d.err
-	}
-	return &lambda.GetFunctionOutput{}, d.err
-}
-
-func (d DummyLambdaClient) CreateFunction(ctx context.Context, input *lambda.CreateFunctionInput, opts ...func(*lambda.Options)) (*lambda.CreateFunctionOutput, error) {
-	return &lambda.CreateFunctionOutput{}, nil
-}
-
-func (d DummyLambdaClient) UpdateFunctionCode(ctx context.Context, input *lambda.UpdateFunctionCodeInput, opts ...func(*lambda.Options)) (*lambda.UpdateFunctionCodeOutput, error) {
-	return &lambda.UpdateFunctionCodeOutput{}, d.err
-}
-
-func (d DummyLambdaClient) Invoke(ctx context.Context, input *lambda.InvokeInput, opts ...func(*lambda.Options)) (*lambda.InvokeOutput, error) {
-	return &lambda.InvokeOutput{
-		StatusCode: 200,
-		Payload:    []byte("all good"),
-	}, nil
-}
-
-func (d DummyLambdaClient) PublishVersion(ctx context.Context, input *lambda.PublishVersionInput, opts ...func(*lambda.Options)) (*lambda.PublishVersionOutput, error) {
-	if d.ConsistantAfterXRetries == nil {
-		return &lambda.PublishVersionOutput{}, fmt.Errorf("this lambda never becomes consistent")
-	}
-	if *d.ConsistantAfterXRetries > 0 {
-		*d.ConsistantAfterXRetries--
-		return &lambda.PublishVersionOutput{}, fmt.Errorf("not yet consistent")
-	}
-	return &lambda.PublishVersionOutput{
-		Version: aws.String("1"),
-	}, nil
-}
-
-func (d DummyLambdaClient) AddPermission(ctx context.Context, input *lambda.AddPermissionInput, opts ...func(*lambda.Options)) (*lambda.AddPermissionOutput, error) {
-	return &lambda.AddPermissionOutput{}, nil
-}
-
-type DummyIAMClient struct {
-	RoleExists bool
-	RoleName   string
-	counter    *int32
-}
-
-func (d DummyIAMClient) IncrementCounter() {
-	if d.counter != nil {
-		atomic.AddInt32(d.counter, 1)
-	}
-}
-
-func (d DummyIAMClient) CreateRole(ctx context.Context, input *iam.CreateRoleInput, opts ...func(*iam.Options)) (*iam.CreateRoleOutput, error) {
-	d.IncrementCounter()
-	if d.RoleExists {
-		return &iam.CreateRoleOutput{}, new(iTypes.EntityAlreadyExistsException)
-	}
-	return &iam.CreateRoleOutput{}, nil
-}
-
-func (d DummyIAMClient) AttachRolePolicy(ctx context.Context, input *iam.AttachRolePolicyInput, opts ...func(*iam.Options)) (*iam.AttachRolePolicyOutput, error) {
-	d.IncrementCounter()
-	return &iam.AttachRolePolicyOutput{}, nil
-}
-
-func (d DummyIAMClient) PutRolePolicy(ctx context.Context, input *iam.PutRolePolicyInput, opts ...func(*iam.Options)) (*iam.PutRolePolicyOutput, error) {
-	d.IncrementCounter()
-	return &iam.PutRolePolicyOutput{}, nil
-}
-
-func (d DummyIAMClient) GetRole(ctx context.Context, input *iam.GetRoleInput, opts ...func(*iam.Options)) (*iam.GetRoleOutput, error) {
-	d.IncrementCounter()
-	if d.RoleExists {
-		return &iam.GetRoleOutput{
-			Role: &iTypes.Role{
-				RoleName: aws.String(d.RoleName),
-			},
-		}, nil
-	}
-	return &iam.GetRoleOutput{}, new(iTypes.NoSuchEntityException)
-}
-
-type DummySTSClient struct {
-	AccountID string
-	Err       error
-}
-
-func (d DummySTSClient) GetCallerIdentity(ctx context.Context, input *sts.GetCallerIdentityInput, opts ...func(*sts.Options)) (*sts.GetCallerIdentityOutput, error) {
-	if d.Err != nil {
-		return nil, d.Err
-	}
-	return &sts.GetCallerIdentityOutput{
-		Account: aws.String(d.AccountID),
-	}, nil
-
 }
