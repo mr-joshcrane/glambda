@@ -84,11 +84,7 @@ func TestNewLambda(t *testing.T) {
 func TestExecutionRole_CreateRoleCommand(t *testing.T) {
 	t.Parallel()
 	assumePolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
-	execRole := glambda.ExecutionRole{
-		RoleName:                 "testRole",
-		AssumeRolePolicyDocument: assumePolicy,
-	}
-	roleCmd := execRole.CreateRoleCommand()
+	roleCmd := glambda.CreateRoleCommand("testRole", assumePolicy)
 	want := &iam.CreateRoleInput{
 		RoleName:                 aws.String("testRole"),
 		AssumeRolePolicyDocument: aws.String(assumePolicy),
@@ -101,11 +97,8 @@ func TestExecutionRole_CreateRoleCommand(t *testing.T) {
 
 func TestExecutionRole_AttachManagedPolicyCommand(t *testing.T) {
 	t.Parallel()
-	execRole := glambda.ExecutionRole{
-		RoleName: "testRole",
-	}
 	policyARN := "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-	attachCmd := execRole.AttachManagedPolicyCommand(policyARN)
+	attachCmd := glambda.AttachManagedPolicyCommand("testRole", policyARN)
 	want := iam.AttachRolePolicyInput{
 		PolicyArn: aws.String(policyARN),
 		RoleName:  aws.String("testRole"),
@@ -119,11 +112,7 @@ func TestExecutionRole_AttachManagedPolicyCommand(t *testing.T) {
 func TestExecutionRole_AttachInLinePolicyCommand(t *testing.T) {
 	t.Parallel()
 	inlinePolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"logs:CreateLogGroup","Resource":"arn:aws:logs:us-west-2:123456789012:*"},{"Effect":"Allow","Action":"logs:CreateLogStream","Resource":"arn:aws:logs:us-west-2:123456789012:log-group:/aws/lambda/test:*"}]}`
-	execRole := glambda.ExecutionRole{
-		RoleName:     "testRoleName",
-		InLinePolicy: inlinePolicy,
-	}
-	inlineCmd := execRole.AttachInLinePolicyCommand("testPolicyName")
+	inlineCmd := glambda.AttachInLinePolicyCommand("testRoleName", "testPolicyName", inlinePolicy)
 	want := iam.PutRolePolicyInput{
 		PolicyName:     aws.String("testPolicyName"),
 		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"logs:CreateLogGroup","Resource":"arn:aws:logs:us-west-2:123456789012:*"},{"Effect":"Allow","Action":"logs:CreateLogStream","Resource":"arn:aws:logs:us-west-2:123456789012:log-group:/aws/lambda/test:*"}]}`),

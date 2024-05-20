@@ -105,25 +105,25 @@ type ExecutionRole struct {
 	InLinePolicy             string
 }
 
-func (e ExecutionRole) CreateRoleCommand() *iam.CreateRoleInput {
+func CreateRoleCommand(roleName string, assumePolicyDocument string) *iam.CreateRoleInput {
 	return &iam.CreateRoleInput{
-		RoleName:                 aws.String(e.RoleName),
-		AssumeRolePolicyDocument: aws.String(e.AssumeRolePolicyDocument),
+		RoleName:                 aws.String(roleName),
+		AssumeRolePolicyDocument: aws.String(assumePolicyDocument),
 	}
 }
 
-func (e ExecutionRole) AttachManagedPolicyCommand(policyARN string) iam.AttachRolePolicyInput {
+func AttachManagedPolicyCommand(roleName string, policyARN string) iam.AttachRolePolicyInput {
 	return iam.AttachRolePolicyInput{
+		RoleName:  aws.String(roleName),
 		PolicyArn: aws.String(policyARN),
-		RoleName:  aws.String(e.RoleName),
 	}
 }
 
-func (e ExecutionRole) AttachInLinePolicyCommand(policyName string) iam.PutRolePolicyInput {
+func AttachInLinePolicyCommand(roleName string, policyName string, inlinePolicy string) iam.PutRolePolicyInput {
 	return iam.PutRolePolicyInput{
+		RoleName:       aws.String(roleName),
 		PolicyName:     aws.String(policyName),
-		PolicyDocument: aws.String(e.InLinePolicy),
-		RoleName:       aws.String(e.RoleName),
+		PolicyDocument: aws.String(inlinePolicy),
 	}
 }
 
@@ -362,10 +362,10 @@ func PrepareRoleAction(role ExecutionRole, iamClient IAMClient) (RoleAction, err
 		if !errors.As(err, &resourceNotFound) {
 			return nil, err
 		}
-		action.CreateRole = role.CreateRoleCommand()
+		action.CreateRole = CreateRoleCommand(role.RoleName, role.AssumeRolePolicyDocument)
 	}
 	for _, policy := range role.ManagedPolicies {
-		action.ManagedPolicies = append(action.ManagedPolicies, role.AttachManagedPolicyCommand(policy))
+		action.ManagedPolicies = append(action.ManagedPolicies, AttachManagedPolicyCommand(role.RoleName, policy))
 	}
 	action.InlinePolicies = PutRolePolicyCommand(role)
 	return action, nil
