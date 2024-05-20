@@ -92,3 +92,24 @@ func TestParseResourcePolicy_AWSPoliciesWithConditions(t *testing.T) {
 		t.Errorf(cmp.Diff(want, l.ResourcePolicy))
 	}
 }
+
+func TestParseResourcepolicy_MissingPrincipalTriggersAnError(t *testing.T) {
+	t.Parallel()
+	testPolicy := `{
+    "Version": "2012-10-17",
+    "Id": "default",
+    "Statement": [
+        {
+            "Sid": "lambda-allow-s3-my-function",
+            "Effect": "Allow",
+            "Action": "lambda:InvokeFunction",
+            "Resource":  "arn:aws:lambda:us-east-2:123456789012:function:my-function",
+        }
+     ]
+}`
+	l := &glambda.Lambda{}
+	err := glambda.WithResourcePolicy(testPolicy)(l)
+	if err == nil {
+		t.Errorf("Expected error but got nil")
+	}
+}
