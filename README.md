@@ -44,7 +44,7 @@ Replace `<lambdaName>` with the desired name for your Lambda function and `<path
 The source file should have a main function that calls lambda.Start(handler). 
 See https://pkg.go.dev/github.com/aws/aws-lambda-go/lambda#Start for more details.
 
-Optionally, you can specify the following flags:
+Optionally, when you're feeling sassy, you can specify some advanced features:
 ```bash
 ## Attach a managed policy by name or ARN to the Lambda function's execution roles
 managedPolicies=S3FullAccess,arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
@@ -71,7 +71,7 @@ glambda deploy <lambdaName> <path/to/handler.go> \
     --inline-policy ${inlinePolicies} \
     --resource-policy ${resourcePolicies}
 ``` 
-
+ 
 3. Delete your Lambda function and associated role is also easy, performed with
 the following command:
 
