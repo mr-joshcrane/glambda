@@ -269,6 +269,9 @@ func WithManagedPolicies(policies string) DeployOptions {
 
 func WithInlinePolicy(policy string) DeployOptions {
 	return func(l *Lambda) error {
+		if policy == "" {
+			return nil
+		}
 		policy, err := ParseInlinePolicy(policy)
 		if err != nil {
 			return err

@@ -724,10 +724,6 @@ func TestWithInlinePolicy_CanDetectInvalidPolicyCases(t *testing.T) {
 		policy      string
 	}{
 		{
-			description: "empty policy",
-			policy:      "",
-		},
-		{
 			description: "invalid json",
 			policy:      `{"invalid": "json}`,
 		},
