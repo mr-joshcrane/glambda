@@ -44,7 +44,16 @@ Replace `<lambdaName>` with the desired name for your Lambda function and `<path
 The source file should have a main function that calls lambda.Start(handler). 
 See https://pkg.go.dev/github.com/aws/aws-lambda-go/lambda#Start for more details.
 
-Optionally, when you're feeling sassy, you can specify some advanced features:
+3. What's that? You've updated your code and need to deploy a new version of your Lambda function? No problem! Just run the same command as before, and Glambda will update the function code for you without recreating the lambda or the role.
+
+In fact, assuming the path to your handler didnt change, we only need to run the same command!
+
+```bash
+glambda deploy <lambdaName> <path/to/handler.go>
+```
+
+4. OK, that's nice, but sometimes your role actually has to DO things. Like access S3 buckets or DynamoDB tables. No problem! Glambda can attach managed policies, inline policies, and resource policies to your Lambda function's execution role. 
+
 ```bash
 ## Attach a managed policy by name or ARN to the Lambda function's execution roles
 managedPolicies=S3FullAccess,arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
@@ -72,8 +81,8 @@ glambda deploy <lambdaName> <path/to/handler.go> \
     --inline-policy ${inlinePolicies} \
     --resource-policy ${resourcePolicies}
 ``` 
- 
-3. Deleting your Lambda function and associated role is also easy, performed with
+
+5. Deleting your Lambda function and associated role is also easy, performed with
 the following command:
 
 ```bash
