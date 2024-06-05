@@ -4,6 +4,12 @@ Glambda is a simple tool for bundling and deploying AL2023 compatible Lambda fun
 
 It's intended to maximise ease of use, at the expense of infinite customisability, and doesn't really play in the same space as SAM, CDK or Terraform.
 
+## Why though?
+
+AWS pivoted from a Go managed runtime to an OS only runtime. I'd argue it's not super intuitive to get started with these. Hence this libary!
+
+You can learn more about it at https://docs.aws.amazon.com/lambda/latest/dg/lambda-golang.html
+
 ## Prerequisites
 
 To use Glambda, you will need an AWS account, and an AWS Access Key ID and
