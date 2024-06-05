@@ -82,7 +82,6 @@ glambda deploy <lambdaName> <path/to/handler.go> \
     --managed-policies ${managedPolicies} \
     --inline-policy ${inlinePolicies} \
     --resource-policy ${resourcePolicies}
-'
 ``` 
 ## Deleting lambdas and associated roles
 
