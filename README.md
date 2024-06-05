@@ -46,10 +46,14 @@ See https://pkg.go.dev/github.com/aws/aws-lambda-go/lambda#Start for more detail
 
 Optionally, you can specify the following flags:
 ```bash
-glambda deploy <lambdaName> <path/to/handler.go> \
-    --managed-policies <AWSManagedPolicyARN>,<AWSManagedPolicyName> \
-    --inline-policy '{"Effect": "Deny", "Action": "s3:GetObject", "Resource": "*"}]}' \
-    --resource-policy '{
+## Attach a managed policy by name or ARN to the Lambda function's execution roles
+managedPolicies=S3FullAccess,arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+
+## Attach an inline policy (as a JSON literal) to the Lambda function's execution roles
+inlinePolicies='{"Effect": "Deny", "Action": "s3:GetObject", "Resource": "*"}'
+
+## Attach a resource policy (as a JSON literal) to the Lambda function
+resourcePolicies='{
             "Sid": "YourLambdaResourcePolicy",
             "Effect": "Allow",
             "Principal": {
@@ -62,8 +66,11 @@ glambda deploy <lambdaName> <path/to/handler.go> \
                 "AWS:SourceAccount": "123456789012"
               }
         }'
- 
-```
+glambda deploy <lambdaName> <path/to/handler.go> \
+    --managed-policies ${managedPolicies} \
+    --inline-policy ${inlinePolicies} \
+    --resource-policy ${resourcePolicies}
+``` 
 
 3. Delete your Lambda function and associated role is also easy, performed with
 the following command:

@@ -49,7 +49,7 @@ func NewLambda(name, handlerPath string) (*Lambda, error) {
 		return nil, err
 	}
 	if awsConfig.Region == "" {
-		return nil, fmt.Errorf("unable to determine AWS region. Try setting the AWS_REGION environment variable")
+		return nil, fmt.Errorf("unable to determine AWS region. Try setting the AWS_DEFAULT_REGION environment variable")
 	}
 
 	accountID, err := AWSAccountID(sts.NewFromConfig(awsConfig))
