@@ -1,6 +1,8 @@
 # Glambda Deployment Tool
 
-Glambda is a simple tool for bundling and deploying AL2023 compatible Lambda functions written in Go. It provides an easy way to **create**, **update** and **delete* AWS Lambdas quickly from the command line using a compact set of commands. It's intended to maximise ease of use, at the expense of infinite customisability, and doesn't really play in the same space as SAM, CDK or Terraform.
+Glambda is a simple tool for bundling and deploying AL2023 compatible Lambda functions written in Go. It provides an easy way to **create**, **update** and **delete** AWS Lambdas quickly from the command line using a compact set of commands. 
+
+It's intended to maximise ease of use, at the expense of infinite customisability, and doesn't really play in the same space as SAM, CDK or Terraform.
 
 ## Prerequisites
 
