@@ -6,7 +6,7 @@ Glambda is a simple tool for bundling and deploying AL2023 compatible Lambda fun
 * update
 * delete
 
-Lambda functions in the AWS ecosystem from the command line using a compact set of commands.
+Lambda functions in the AWS ecosystem from the command line using a compact set of commands. It's intended to maximise ease of use, at the expense of customisability, and doesn't really play in the same space as SAM, CDK or Terraform.
 
 ## Prerequisites
 
