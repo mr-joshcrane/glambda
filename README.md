@@ -6,7 +6,7 @@ It's intended to maximise ease of use, at the expense of infinite customisabilit
 
 ## Why though?
 
-AWS pivoted from a Go managed runtime to an OS only runtime. I'd argue it's not super intuitive to get started with these. Hence this libary!
+AWS pivoted from a Go managed runtime to an OS only runtime. I'd argue that relative to the managed runtime, the OS only runtime has a much higher barrier to entry. Hence this libary!
 
 You can learn more about it at https://docs.aws.amazon.com/lambda/latest/dg/lambda-golang.html
 
