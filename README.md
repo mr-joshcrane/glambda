@@ -73,7 +73,7 @@ glambda deploy <lambdaName> <path/to/handler.go> \
     --resource-policy ${resourcePolicies}
 ``` 
  
-3. Delete your Lambda function and associated role is also easy, performed with
+3. Deleting your Lambda function and associated role is also easy, performed with
 the following command:
 
 ```bash
