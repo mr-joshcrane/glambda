@@ -456,7 +456,22 @@ func TestCreateLambdaActionDo(t *testing.T) {
 	client := mock.DummyLambdaClient{
 		FuncExists: false,
 	}
-	action := glambda.NewLambdaCreateAction(client, glambda.Lambda{Name: "testLambda"}, []byte("some valid zip data"))
+	l := glambda.Lambda{
+		Name:        "testLambda",
+		HandlerPath: "testdata/correct_test_handler/main.go",
+		ExecutionRole: glambda.ExecutionRole{
+			RoleName:                 "lambda-role",
+			AssumeRolePolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`,
+		},
+		ResourcePolicy: glambda.ResourcePolicy{
+			Principal:               "123456789012",
+			SourceArnCondition:      aws.String("arn:aws:s3:::mybucket"),
+			SourceAccountCondition:  aws.String("123456789012"),
+			PrincipalOrgIdCondition: aws.String("o-123456"),
+		},
+	}
+
+	action := glambda.NewLambdaCreateAction(client, l, []byte("some valid zip data"))
 	err := action.Do()
 	if err != nil {
 		t.Error(err)
