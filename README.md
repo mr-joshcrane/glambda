@@ -66,6 +66,7 @@ resourcePolicies='{
                 "AWS:SourceAccount": "123456789012"
               }
         }'
+
 glambda deploy <lambdaName> <path/to/handler.go> \
     --managed-policies ${managedPolicies} \
     --inline-policy ${inlinePolicies} \
