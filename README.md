@@ -4,6 +4,8 @@ Glambda is a simple tool for bundling and deploying AL2023 compatible Lambda fun
 
 It's intended to maximise ease of use, at the expense of infinite customisability, and doesn't really play in the same space as SAM, CDK or Terraform.
 
+If you'd prefer to use these more mature tools, consider using the `package` sub-command which will just write out a well formatted zip file ready to upload to AWS.
+
 ## Why though?
 
 AWS pivoted from a Go managed runtime to an OS only runtime. I'd argue that relative to the managed runtime, the OS only runtime has a much higher barrier to entry. Hence this libary!
@@ -16,6 +18,14 @@ To use Glambda, you will need an AWS account, and an AWS Access Key ID and
 Secret Access Key with the appropriate permissions to create and manage Lambda
 functions, as well as IAM roles.
 
+Glambda will also assume the following AWS environment variables are set up:
+
+```bash
+export AWS_ACCESS_KEY_ID=<your-access-key-id>
+export AWS_SECRET_ACCESS_KEY=<your-secret-access-key>
+export AWS_DEFAULT_REGION=<your-region>
+```
+
 ## Installation
 
 To install Glambda, run:
@@ -25,15 +35,17 @@ go install github.com/mr-joshcrane/glambda/cmd/glambda@latest
 
 ## Usage
 
-Have AWS environment variables set up:
+### Package a lambda, ready for deployment
+If you've already got a deployment tool you'd prefer to use, no problem. You can build the lambda zip file with the `package` sub-command. 
 
 ```bash
-export AWS_ACCESS_KEY_ID=<your-access-key-id>
-export AWS_SECRET_ACCESS_KEY=<your-secret-access-key>
-export AWS_DEFAULT_REGION=<your-region>
+glambda package <path/to/handler.go> ## Will default to writing out to package.zip in the current working dir
+glambda package <path/to/handler.go> --output /my/custom/filepath/artifact.zip
 ```
----
-## Create new lambdas
+
+From here you'll have the ability to take this zip file and do what needs doing in your tool of choice.
+
+### Create new lambdas directly
 Run the following command to deploy a Lambda function with an associated
    execution role:
 
@@ -47,7 +59,7 @@ The source file should have a main function that calls lambda.Start(handler).
 See https://pkg.go.dev/github.com/aws/aws-lambda-go/lambda#Start for more details.
 
 ---
-## Update existing lambdas
+### Update existing lambdas
 
 What's that? You've updated your code and need to deploy a new version of your Lambda function? No problem! Just run the same command as before, and Glambda will update the function code for you without recreating the lambda or the role.
 
@@ -58,7 +70,7 @@ glambda deploy <lambdaName> <path/to/handler.go>
 ```
 
 ---
-## Execution Role and Lambda Resource Permissions
+### Execution Role and Lambda Resource Permissions
 
 OK, that's nice, but sometimes your role actually has to DO things. Like access S3 buckets or DynamoDB tables. No problem! Glambda can attach managed policies, inline policies, and resource policies to your Lambda function's execution role. 
 
@@ -89,7 +101,7 @@ glambda deploy <lambdaName> <path/to/handler.go> \
     --inline-policy ${inlinePolicies} \
     --resource-policy ${resourcePolicies}
 ``` 
-## Deleting lambdas and associated roles
+### Deleting lambdas and associated roles
 
 Deleting your Lambda function and associated role is also easy, performed with
 the following command:
