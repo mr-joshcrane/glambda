@@ -3,9 +3,11 @@ package command
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 
-	"github.com/spf13/cobra"
 	"github.com/mr-joshcrane/glambda"
+	"github.com/spf13/cobra"
 )
 
 type CommandOptions func(*cobra.Command) error
@@ -14,6 +16,12 @@ func WithOutput(w io.Writer) CommandOptions {
 	return func(cmd *cobra.Command) error {
 		cmd.SetOutput(w)
 		return nil
+	}
+}
+
+func WithPackagePath(path string) CommandOptions {
+	return func(cmd *cobra.Command) error {
+		return cmd.Flags().Set("output", path)
 	}
 }
 
@@ -26,6 +34,7 @@ func Main(args []string, opts ...CommandOptions) error {
 	commands := []*cobra.Command{
 		DeployCommand(),
 		DeleteCommand(),
+		PackageCommand(),
 	}
 	for _, opt := range opts {
 		err := opt(rootCmd)
@@ -38,7 +47,6 @@ func Main(args []string, opts ...CommandOptions) error {
 		rootCmd.Printf(rootCmd.UsageString())
 		return fmt.Errorf("no command provided")
 	}
-	rootCmd.SetArgs(args)
 	_, _, err := rootCmd.Find(args)
 	if err != nil {
 		rootCmd.Printf(rootCmd.UsageString())
@@ -88,4 +96,40 @@ func DeleteCommand() *cobra.Command {
 		},
 	}
 	return deleteCmd
+}
+
+func PackageCommand() *cobra.Command {
+	var packageCmd = &cobra.Command{
+		Use:          "package sourceCodePath",
+		Short:        "Package a Go binary as a ZIP'd bundle ready to upload to AWS.",
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
+		Example:      `glambda package /path/to/sourceCode.go`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sourceCodePath := args[0]
+			sourceCodePath, err := filepath.Abs(sourceCodePath)
+			if err != nil {
+				return fmt.Errorf("error getting path for source code, %w", err)
+			}
+			outputPath, err := cmd.Flags().GetString("output")
+			if err != nil {
+				return fmt.Errorf("error getting output path, %w", err)
+			}
+			data, err := glambda.Package(sourceCodePath)
+			if err != nil {
+				return fmt.Errorf("error packaging lambda function, %w", err)
+			}
+			if outputPath == "" {
+				outputPath = "./package.zip"
+			}
+
+			err = os.WriteFile(outputPath, data, 0644)
+			if err != nil {
+				return fmt.Errorf("error writing package to disk, %w", err)
+			}
+			return nil
+		},
+	}
+	packageCmd.Flags().String("output", "package.zip", "Path to write the packaged lambda function.")
+	return packageCmd
 }

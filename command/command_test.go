@@ -2,6 +2,8 @@ package command_test
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -36,5 +38,27 @@ func TestMain_ReturnsErrorAndHelpOnInvalidArgs(t *testing.T) {
 				t.Errorf("Expected help message but got: %s", buf.String())
 			}
 		})
+	}
+}
+
+func TestMain_SuccessfullyPackagesALambdaWithThePackageCommand(t *testing.T) {
+	t.Parallel()
+	tempPath := t.TempDir() + "/package.zip"
+	err := os.Chdir("../testdata/correct_test_handler")
+	if err != nil {
+		t.Fatalf("Failed to change directory: %v", err)
+	}
+	absPath, err := filepath.Abs("main.go")
+	if err != nil {
+		t.Fatalf("Test setup for correct_test_handler failed: %v", err)
+	}
+	args := []string{"package", absPath, "--output", tempPath}
+	err = command.Main(args)
+	if err != nil {
+		t.Fatalf("Failed to package lambda: %v", err)
+	}
+	_, err = os.Stat(tempPath)
+	if err != nil {
+		t.Fatalf("Failed to find package.zip: %v", err)
 	}
 }

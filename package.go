@@ -35,9 +35,9 @@ func buildBinary(path string) ([]byte, error) {
 
 	//go build -tags lambda.norpc -o bootstrap main.go
 	cmd := exec.Command("go", "build", "-tags", "lambda.norpc", "-o", tempBootstrap, path)
-	_, err = cmd.CombinedOutput()
+	msg, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("error building lambda function: %w", err)
+		return nil, fmt.Errorf("error building lambda function: %w, %s", err, msg)
 	}
 
 	data, err := os.ReadFile(tempBootstrap)
