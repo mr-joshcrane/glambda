@@ -8,6 +8,11 @@ import (
 	"os/exec"
 )
 
+// Package takes a path to a file, attempts to build it for the ARM64 architecture
+// and massages it into the format expected by AWS Lambda.
+//
+// The result is a zip file containing the executable binary within the context
+// of a file system.
 func Package(path string) ([]byte, error) {
 	data, err := buildBinary(path)
 	if err != nil {
