@@ -17,7 +17,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// LambdaClient represents the interface that a lambda client should implement
+// LambdaClient represents the interface that a lambda client should implement.
+//
 // The most obvious implementation is the lambda.Client from the aws-sdk-go-v2
 // However we also use it for mock clients in tests
 type LambdaClient interface {
@@ -30,7 +31,8 @@ type LambdaClient interface {
 	DeleteFunction(ctx context.Context, params *lambda.DeleteFunctionInput, optFns ...func(*lambda.Options)) (*lambda.DeleteFunctionOutput, error)
 }
 
-// IAMClient represents the interface that an iam client should implement
+// IAMClient represents the interface that an iam client should implement.
+//
 // The most obvious implementation is the iam.Client from the aws-sdk-go-v2
 // However we also use it for mock clients in tests
 type IAMClient interface {
@@ -40,7 +42,8 @@ type IAMClient interface {
 	PutRolePolicy(ctx context.Context, params *iam.PutRolePolicyInput, optFns ...func(*iam.Options)) (*iam.PutRolePolicyOutput, error)
 }
 
-// STSClient represents the interface that an sts client should implement
+// STSClient represents the interface that an sts client should implement.
+//
 // The most obvious implementation is the sts.Client from the aws-sdk-go-v2
 // However we also use it for mock clients in tests
 type STSClient interface {
