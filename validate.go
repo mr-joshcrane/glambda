@@ -9,6 +9,13 @@ import (
 	"strings"
 )
 
+// Validate takes a path to a Go source file.
+// A valid Go source file for the purposes of AWS Lambda will...
+//
+// 1. Contain a main function.
+//
+// 2. Call one of the lambda Start... functions as seen here
+// https://pkg.go.dev/github.com/aws/aws-lambda-go/lambda#Start
 func Validate(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
