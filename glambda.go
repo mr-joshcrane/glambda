@@ -15,6 +15,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
+// Lambda is a struct that attempts to encapsulate the neccessary information
+// required to deploy a lambda function to AWS. It doesn't map 1:1 with the
+// AWS Lambda API, or any of the concrete AWS artifacts, and should be thought
+// of as a higher level abstraction of convenience.
 type Lambda struct {
 	Name           string
 	HandlerPath    string
@@ -24,6 +28,10 @@ type Lambda struct {
 	cfg            aws.Config
 }
 
+// ResourcePolicy is a struct that represents the policy that will be attached
+// to the lambda function. Unlike the [Lambda] struct, this struct is more
+// directly aligned to an AWS artifact. Namely the result of a call to the
+// [AddPermission] API.
 type ResourcePolicy struct {
 	Principal               string
 	SourceAccountCondition  *string
@@ -31,6 +39,10 @@ type ResourcePolicy struct {
 	PrincipalOrgIdCondition *string
 }
 
+// ExecutionRole is a struct that attempts to encapsulate all the information
+// required to create an AWS IAM Role that the lambda function will assume and
+// operate on behalf of. It ties together several IAM concepts that would otherwise
+// require separate API calls to create.
 type ExecutionRole struct {
 	RoleName                 string
 	RoleARN                  string
@@ -39,6 +51,13 @@ type ExecutionRole struct {
 	InLinePolicy             string
 }
 
+// NewLambda is a constructor function that creates a new Lambda struct. It
+// requires a friendly name for the lambda function to be created, and the path
+// to the handler code that will be executed when the lambda function is invoked.
+// It assumes the environment is configured with the necessary AWS credentials can
+// be found in the enviroment. It also assumes that a default AWS region is set.
+// Finally it assumes that the current AWS credentials can perform an
+// sts:GetCallerIdentity identity call in order to determine the AWS account ID.
 func NewLambda(name, handlerPath string) (*Lambda, error) {
 	awsConfig, err := config.LoadDefaultConfig(
 		context.Background(),
@@ -75,22 +94,30 @@ func NewLambda(name, handlerPath string) (*Lambda, error) {
 	}, nil
 }
 
-// Actions
+// Actions are at a high level a way to organise a set of operations that need
+// to be performed with the AWS SDK and in which order. Operations might depend
+// on the result of a previous operation.
 type Action interface {
 	Do() error
 }
 
+// LambdaActions are any set of operations that requires the AWS Lambda service.
+// It includes a configured client in order to perform these operations.
+// They are a subset of the [Action] interface.
 type LambdaAction interface {
 	Client() LambdaClient
 	Action
 }
 
+// LambdaCreateAction is [LambdaAction] that will create a new lambda function,
+// and potentially attach a resource policy to it.
 type LambdaCreateAction struct {
 	client                LambdaClient
 	CreateLambdaCommand   *lambda.CreateFunctionInput
 	ResourcePolicyCommand *lambda.AddPermissionInput
 }
 
+// NewLambdaCreateAction is a constructor function that creates a new [LambdaCreateAction].
 func NewLambdaCreateAction(client LambdaClient, l Lambda, pkg []byte) LambdaCreateAction {
 	return LambdaCreateAction{
 		client:                client,
@@ -99,10 +126,13 @@ func NewLambdaCreateAction(client LambdaClient, l Lambda, pkg []byte) LambdaCrea
 	}
 }
 
+// Client returns the required client type. In this case [LambdaClient].
 func (a LambdaCreateAction) Client() LambdaClient {
 	return a.client
 }
 
+// Do is the implementation of the [Action] interface. It will create the lambda
+// function and attach the resource policy if it was provided, returning any error.
 func (a LambdaCreateAction) Do() error {
 	client := a.Client()
 	_, err := client.CreateFunction(context.Background(), a.CreateLambdaCommand)
@@ -116,12 +146,14 @@ func (a LambdaCreateAction) Do() error {
 	return err
 }
 
+// LambdaUpdateAction is [LambdaAction] that will update an existing lambda function.
 type LambdaUpdateAction struct {
 	client                LambdaClient
 	UpdateLambdaCommand   *lambda.UpdateFunctionCodeInput
 	ResourcePolicyCommand *lambda.AddPermissionInput
 }
 
+// NewLambdaUpdateAction is a constructor function that creates a new [LambdaUpdateAction].
 func NewLambdaUpdateAction(client LambdaClient, l Lambda, pkg []byte) LambdaUpdateAction {
 	return LambdaUpdateAction{
 		client:                client,
@@ -130,21 +162,30 @@ func NewLambdaUpdateAction(client LambdaClient, l Lambda, pkg []byte) LambdaUpda
 	}
 }
 
+// Client returns the required client type. In this case [LambdaClient].
 func (a LambdaUpdateAction) Client() LambdaClient {
 	return a.client
 }
 
+// Do is the implementation of the [Action] interface. It will update the lambda
+// Updating a lambda function in this context will mean updating the packaged zip file
+// that contains the lambda function code. It may also optionally require updating the
+// resource policy attached to the lambda function, if one was provided.
 func (a LambdaUpdateAction) Do() error {
 	client := a.Client()
 	_, err := client.UpdateFunctionCode(context.Background(), a.UpdateLambdaCommand)
 	return err
 }
 
+// RoleAction is a high level interface that represents a set of operations that
+// come from attempting to manage the AWS IAM Role that will be used as the
+// Lambda's execution role.
 type RoleAction interface {
 	Client() IAMClient
 	Do() error
 }
 
+// NewRoleCreateOrUpdateAction is a constructor function that creates a new [RoleCreateOrUpdate].
 func NewRoleCreateOrUpdateAction(client IAMClient) RoleCreateOrUpdate {
 	return RoleCreateOrUpdate{
 		client:          client,
@@ -154,6 +195,14 @@ func NewRoleCreateOrUpdateAction(client IAMClient) RoleCreateOrUpdate {
 	}
 }
 
+// RoleCreateOrUpdate is a struct that implements the [RoleAction] interface.
+// It is a high level abstraction that encapsulates the operations required to
+// either create or update an IAM Role. It includes the ability to attach managed
+// policies and inline policies to the role.
+//
+// The reason create and update are combined into a single struct is because from
+// the users perspective, the goal is the same. They want to ensure that the role
+// exists and has the correct policies attached to it.
 type RoleCreateOrUpdate struct {
 	client          IAMClient
 	CreateRole      *iam.CreateRoleInput
@@ -161,10 +210,15 @@ type RoleCreateOrUpdate struct {
 	InlinePolicies  []iam.PutRolePolicyInput
 }
 
+// Client returns the required client type. In this case [IAMClient].
 func (a RoleCreateOrUpdate) Client() IAMClient {
 	return a.client
 }
 
+// Do is the implementation of the [Action] interface. It will create the role if
+// it was determined that it didn't exist at Action construction time (see [PrepareRoleAction]).
+// It will then execute the attach role policy and put role policy commands in that order
+// as provided at Action construction time.
 func (a RoleCreateOrUpdate) Do() error {
 	var err error
 	client := a.Client()
@@ -189,6 +243,14 @@ func (a RoleCreateOrUpdate) Do() error {
 	return err
 }
 
+// PrepareRoleAction is a function that creates a new [RoleCreateOrUpdate] struct.
+// It will add the AWS managed policy "AWSLambdaBasicExecutionRole" to the role by default
+// as a lambda without this role makes very little sense. It will also add any managed
+// policies and inline policies that were provided in the [ExecutionRole] struct.
+//
+// This function does make live API calls to AWS IAM to determine if the role already exists.
+// If not, it will create a new [CreateRoleCommand] to be executed by the [RoleCreateOrUpdate].
+// The [PutRolePolicyCommand] and [AttachManagedPolicyCommand] created here for deferred execution.
 func PrepareRoleAction(role ExecutionRole, iamClient IAMClient) (RoleAction, error) {
 	action := RoleCreateOrUpdate{
 		client:         iamClient,
@@ -217,15 +279,20 @@ func PrepareRoleAction(role ExecutionRole, iamClient IAMClient) (RoleAction, err
 	return action, nil
 }
 
+// PrepareLambdaAction is a function that creates a new [LambdaAction] struct.
+// It will create the deployment package, and then determine if the lambda function
+// needs to be created. It will branch out into either a [LambdaCreateAction] or
+// a [LambdaUpdateAction] depending on the current state in AWS.
 func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
-	exists, err := lambdaExists(c, l.Name)
-	if err != nil {
-		return nil, err
-	}
 	pkg, err := Package(l.HandlerPath)
 	if err != nil {
 		return nil, err
 	}
+	exists, err := lambdaExists(c, l.Name)
+	if err != nil {
+		return nil, err
+	}
+
 	var action LambdaAction
 	if exists {
 		action = NewLambdaUpdateAction(c, l, pkg)
@@ -235,6 +302,8 @@ func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
 	return action, nil
 }
 
+// CreateLambdaCommand is a paperwork reducer that translates parameters into
+// the smithy autogenerated AWS Lambda SDKv2 format of [lambda.CreateFunctionInput]
 func CreateLambdaCommand(name, roleARN string, pkg []byte) *lambda.CreateFunctionInput {
 	return &lambda.CreateFunctionInput{
 		FunctionName: aws.String(name),
@@ -250,6 +319,8 @@ func CreateLambdaCommand(name, roleARN string, pkg []byte) *lambda.CreateFunctio
 	}
 }
 
+// UpdateLambdaCommand is a paperwork reducer that translates parameters into
+// the smithy autogenerated AWS Lambda SDKv2 format of [lambda.UpdateFunctionCodeInput]
 func UpdateLambdaCommand(name string, pkg []byte) *lambda.UpdateFunctionCodeInput {
 	return &lambda.UpdateFunctionCodeInput{
 		FunctionName: aws.String(name),
@@ -258,8 +329,14 @@ func UpdateLambdaCommand(name string, pkg []byte) *lambda.UpdateFunctionCodeInpu
 	}
 }
 
+// DeployOptions is any function that can be used to configure a [Lambda]
+// struct before it is deployed. It is a functional option pattern.
 type DeployOptions func(*Lambda) error
 
+// WithManagedPolicies is a deploy option that allows the user to attach
+// one or more managed policies to the [Lambda] struct. The managed policies
+// are expected to be a comma separated string of ARNs. For parsing rules
+// see [ParseManagedPolicy].
 func WithManagedPolicies(policies string) DeployOptions {
 	return func(l *Lambda) error {
 		l.ExecutionRole.ManagedPolicies = ParseManagedPolicy(policies)
@@ -267,6 +344,9 @@ func WithManagedPolicies(policies string) DeployOptions {
 	}
 }
 
+// WithInlinePolicy is a deploy option that allows the user to attach
+// an inline policy to the [Lambda] struct. The inline policy is expected
+// to be a JSON string. For parsing rules see [ParseInlinePolicy].
 func WithInlinePolicy(policy string) DeployOptions {
 	return func(l *Lambda) error {
 		if policy == "" {
@@ -281,6 +361,9 @@ func WithInlinePolicy(policy string) DeployOptions {
 	}
 }
 
+// WithResourcePolicy is a deploy option that allows the user to attach
+// a resource policy to the [Lambda] struct. The resource policy is expected
+// to be a JSON string. For parsing rules see [ParseResourcePolicy].
 func WithResourcePolicy(policy string) DeployOptions {
 	return func(l *Lambda) error {
 		if policy == "" {
@@ -295,6 +378,9 @@ func WithResourcePolicy(policy string) DeployOptions {
 	}
 }
 
+// WithAWSConfig is a deploy option that allows the user to provide a custom
+// AWS Config to the [Lambda] struct. This is useful when you need more fine grained
+// control over the AWS SDK configuration.
 func WithAWSConfig(cfg aws.Config) DeployOptions {
 	return func(l *Lambda) error {
 		l.cfg = cfg
@@ -302,6 +388,9 @@ func WithAWSConfig(cfg aws.Config) DeployOptions {
 	}
 }
 
+// Deploy is a method on the [Lambda] struct that will attempt to deploy the lambda
+// function to AWS. It will attempt to prepare, then deploy the execution role, and
+// if successful will repeat the process for the lambda function itself.
 func (l Lambda) Deploy() error {
 	iamClient := iam.NewFromConfig(l.cfg)
 	roleAction, err := PrepareRoleAction(l.ExecutionRole, iamClient)
@@ -320,6 +409,10 @@ func (l Lambda) Deploy() error {
 	return action.Do()
 }
 
+// Test is a method on the [Lambda] struct that will attempt to invoke the newly
+// created lambda function in a dry run mode. This is useful for testing the lambda
+// function after deployment. As per AWS documentation, the dry run mode should not
+// execute the lambda function, but will rather 'validate parameter values and verify that the user or role has permission to invoke the function'.
 func (l Lambda) Test() error {
 	lambdaClient := lambda.NewFromConfig(l.cfg)
 	version, err := WaitForConsistency(lambdaClient, l.Name)
@@ -334,6 +427,11 @@ func (l Lambda) Test() error {
 	return err
 }
 
+// Deploy is a convenience function that will handle the paperwork that would
+// otherwise fall to the user to manage. It will create a new [Lambda] struct
+// and attempt to deploy it to AWS. It will also test the lambda function after
+// deployment. It is a high level abstraction that should represent the majority
+// of use cases for this library.
 func Deploy(name, source string, opts ...DeployOptions) error {
 	l, err := NewLambda(name, source)
 	if err != nil {
@@ -352,6 +450,17 @@ func Deploy(name, source string, opts ...DeployOptions) error {
 	return l.Test()
 }
 
+// Delete is a convenience function that will delete a lambda function and the
+// associated IAM Role. Deletion is actually more complex than it might seem at
+// first glance and requires a specific unwinding of various resources.
+//
+// It should be noted that it is A) a destructive operation and B) allows for the
+// possibility of deleting resources that are not managed by this library. The usual
+// care and due dillgence should be taken before deleting.
+//
+// It will also detach any managed policies that were attached
+// to the role. It is a high level abstraction that should represent the majority
+// of use cases for this library.
 func Delete(name string) error {
 	l, err := NewLambda(name, "")
 	if err != nil {
