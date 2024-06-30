@@ -13,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
 )
 
@@ -198,12 +197,9 @@ type RetryableErrors struct{}
 // IsErrorRetryable is a custom retryer that tells the lambda client
 // to retry on which errors.
 func (r RetryableErrors) IsErrorRetryable(err error) aws.Ternary {
-	var opErr *smithy.OperationError
-	if errors.As(err, &opErr) {
-		var lambdaErr *types.InvalidParameterValueException
-		if errors.As(err, &lambdaErr) {
-			return aws.TrueTernary
-		}
+	var lambdaErr *types.InvalidParameterValueException
+	if errors.As(err, &lambdaErr) {
+		return aws.TrueTernary
 	}
 	return aws.FalseTernary
 }

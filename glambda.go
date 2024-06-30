@@ -400,7 +400,6 @@ func (l Lambda) Deploy() error {
 	if err != nil {
 		return err
 	}
-	l.cfg.Retryer = customRetryer
 	lambdaClient := lambda.NewFromConfig(l.cfg)
 	action, err := PrepareLambdaAction(l, lambdaClient)
 	if err != nil {

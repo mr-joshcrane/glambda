@@ -451,6 +451,18 @@ func TestUpdateLambdaActionDo(t *testing.T) {
 	}
 }
 
+func TestRetryableErrors_ParameterErrorsAreRetried(t *testing.T) {
+	t.Parallel()
+	err := &types.InvalidParameterValueException{
+		Message: aws.String("The role defined for the function cannot be assumed by Lambda"),
+		Type:    aws.String("InvalidParameterValueException"),
+	}
+	isRetryable := glambda.RetryableErrors{}.IsErrorRetryable(err)
+	if isRetryable != aws.BoolTernary(true) {
+		t.Errorf("expected error to be retryable, got %s", isRetryable)
+	}
+}
+
 func TestCreateLambdaActionDo(t *testing.T) {
 	t.Parallel()
 	client := mock.DummyLambdaClient{
