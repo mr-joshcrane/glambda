@@ -18,9 +18,8 @@ jobs:
           # The Amazon Resource Name (ARN) of the role to assume. Use the provided credentials to assume an IAM role and configure the Actions environment with the assumed role credentials rather than with the provided credentials.
           role-to-assume: arn:aws:iam::265693559009:role/GlambdaIntegrationTestRole  
           audience: sts.amazonaws.com
-          id-token: true
           mask-aws-account-id: true
-          role-duration-seconds: 300
+          role-duration-seconds: 900
           role-session-name: mrJoshCraneGlambda
       
       - name: "Checkout code"
