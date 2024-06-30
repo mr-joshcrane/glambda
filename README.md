@@ -2,7 +2,14 @@
 
 Glambda is a simple tool for bundling and deploying AL2023 compatible Lambda functions written in Go. It provides an easy way to **create**, **update** and **delete** AWS Lambdas quickly from the command line using a compact set of commands. 
 
-It's intended to maximise ease of use, at the expense of infinite customisability, and doesn't really play in the same space as SAM, CDK or Terraform.
+Get started with Glambda by running the following command:
+
+```bash
+glambda deploy <lambdaName> <path/to/handler.go> 
+```
+
+
+The intent is to maximise ease of use, at the expense of infinite customisability, and doesn't really play in the same space as SAM, CDK or Terraform.
 
 If you'd prefer to use these more mature tools, consider using the `package` sub-command which will just write out a well formatted zip file ready to upload to AWS.
 
@@ -40,9 +47,9 @@ If you've already got a deployment tool you'd prefer to use, no problem. You can
 
 ```bash
 ## Default output path is "./package.zip"
-glambda package <path/to/handler.go>
+glambda deploy package <path/to/handler.go>
 ## Alternatively you can provide the output path explicitly
-glambda package <path/to/handler.go> --output /my/custom/filepath/artifact.zip
+glambda deploy package <path/to/handler.go> --output /my/custom/filepath/artifact.zip
 ```
 
 From here you'll have the ability to take this zip file and do what needs doing in your tool of choice.
@@ -111,4 +118,4 @@ the following command:
 ```bash
 glambda delete <lambdaName>
 ```
- 
+
