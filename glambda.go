@@ -391,6 +391,7 @@ func WithAWSConfig(cfg aws.Config) DeployOptions {
 // function to AWS. It will attempt to prepare, then deploy the execution role, and
 // if successful will repeat the process for the lambda function itself.
 func (l Lambda) Deploy() error {
+	l.cfg.Retryer = customRetryer
 	iamClient := iam.NewFromConfig(l.cfg)
 	roleAction, err := PrepareRoleAction(l.ExecutionRole, iamClient)
 	if err != nil {
