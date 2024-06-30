@@ -145,7 +145,7 @@ func TestPrepareAction_CreateFunction(t *testing.T) {
 	}
 	_, ok := action.(glambda.LambdaCreateAction)
 	if !ok {
-		t.Errorf("expected CreateAction, got %T", action)
+		t.Errorf("expected CreateAction but did not get it")
 	}
 
 }
@@ -169,7 +169,7 @@ func TestPrepareAction_UpdateFunction(t *testing.T) {
 	}
 	_, ok := action.(glambda.LambdaUpdateAction)
 	if !ok {
-		t.Errorf("expected UpdateAction, got %T", action)
+		t.Errorf("expected UpdateAction but did not get it")
 	}
 }
 
