@@ -36,9 +36,8 @@ func buildBinary(path string) ([]byte, error) {
 	}
 	defer os.Remove(tempBootstrap)
 
-	tempBootstrap = tempBootstrap + "/bootstrap"
+	tempBootstrap += "/bootstrap"
 
-	//go build -tags lambda.norpc -o bootstrap main.go
 	cmd := exec.Command("go", "build", "-tags", "lambda.norpc", "-o", tempBootstrap, path)
 	msg, err := cmd.CombinedOutput()
 	if err != nil {
