@@ -40,13 +40,14 @@ func Validate(path string) error {
 func containsMain(node ast.Node) bool {
 	var found bool
 	ast.Inspect(node, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.FuncDecl:
-			if x.Name.Name == "main" {
+		if funcDecl, ok := n.(*ast.FuncDecl); ok {
+			if funcDecl.Name.Name == "main" {
 				found = true
+				// time to break out of the ast.Inspect travseral
 				return false
 			}
 		}
+		// continue traversing the ast looking for a main function
 		return true
 	})
 	return found
@@ -55,16 +56,16 @@ func containsMain(node ast.Node) bool {
 func containsLambdaStartFunctionCall(node ast.Node) bool {
 	var found bool
 	ast.Inspect(node, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.CallExpr:
-			switch y := x.Fun.(type) {
-			case *ast.SelectorExpr:
-				if strings.HasPrefix(y.Sel.Name, "Start") {
+		if callExpr, ok := n.(*ast.CallExpr); ok {
+			if selectorExpr, ok := callExpr.Fun.(*ast.SelectorExpr); ok {
+				if strings.HasPrefix(selectorExpr.Sel.Name, "Start") {
 					found = true
+					// time to break out of the ast.Inspect travseral
 					return false
 				}
 			}
 		}
+		// continue traversing the ast looking for a call to lambda.Start*
 		return true
 	})
 	return found

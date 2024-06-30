@@ -61,9 +61,8 @@ type ExecutionRole struct {
 func NewLambda(name, handlerPath string) (*Lambda, error) {
 	awsConfig, err := config.LoadDefaultConfig(
 		context.Background(),
-		config.WithRetryer(func() aws.Retryer {
-			return customRetryer()
-		}))
+		config.WithRetryer(customRetryer),
+	)
 	if err != nil {
 		return nil, err
 	}
