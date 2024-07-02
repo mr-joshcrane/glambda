@@ -1,6 +1,7 @@
 package glambda
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -283,7 +284,8 @@ func PrepareRoleAction(role ExecutionRole, iamClient IAMClient) (RoleAction, err
 // needs to be created. It will branch out into either a [LambdaCreateAction] or
 // a [LambdaUpdateAction] depending on the current state in AWS.
 func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
-	pkg, err := Package(l.HandlerPath)
+	pkg := new(bytes.Buffer)
+	err := PackageTo(l.HandlerPath, pkg)
 	if err != nil {
 		return nil, err
 	}
@@ -294,9 +296,9 @@ func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
 
 	var action LambdaAction
 	if exists {
-		action = NewLambdaUpdateAction(c, l, pkg)
+		action = NewLambdaUpdateAction(c, l, pkg.Bytes())
 	} else {
-		action = NewLambdaCreateAction(c, l, pkg)
+		action = NewLambdaCreateAction(c, l, pkg.Bytes())
 	}
 	return action, nil
 }

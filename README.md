@@ -46,7 +46,7 @@ go install github.com/mr-joshcrane/glambda/cmd/glambda@latest
 If you've already got a deployment tool you'd prefer to use, no problem. You can build the lambda zip file with the `package` sub-command. 
 
 ```bash
-## Default output path is "./package.zip"
+## Default output path is "./bootstrap" which is what AWS will be expecting
 glambda deploy package <path/to/handler.go>
 ## Alternatively you can provide the output path explicitly
 glambda deploy package <path/to/handler.go> --output /my/custom/filepath/artifact.zip

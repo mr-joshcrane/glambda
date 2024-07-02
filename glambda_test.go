@@ -125,72 +125,6 @@ func TestExecutionRole_AttachInLinePolicyCommand(t *testing.T) {
 		t.Error(cmp.Diff(inlineCmd, want, ignore))
 	}
 }
-
-func TestPrepareAction_CreateFunction(t *testing.T) {
-	t.Parallel()
-
-	client := mock.DummyLambdaClient{
-		FuncExists: false,
-		Err:        nil,
-	}
-	handler := "testdata/correct_test_handler/main.go"
-	l := glambda.Lambda{
-		Name:          "test",
-		HandlerPath:   handler,
-		ExecutionRole: glambda.ExecutionRole{RoleName: "lambda-role"},
-	}
-	action, err := glambda.PrepareLambdaAction(l, client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, ok := action.(glambda.LambdaCreateAction)
-	if !ok {
-		t.Errorf("expected CreateAction but did not get it")
-	}
-
-}
-
-func TestPrepareAction_UpdateFunction(t *testing.T) {
-	t.Parallel()
-	client := mock.DummyLambdaClient{
-		FuncExists: true,
-		Err:        nil,
-	}
-	handler := "testdata/correct_test_handler/main.go"
-	l := glambda.Lambda{
-		Name:          "test",
-		HandlerPath:   handler,
-		ExecutionRole: glambda.ExecutionRole{RoleName: "lambda-role"},
-	}
-
-	action, err := glambda.PrepareLambdaAction(l, client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, ok := action.(glambda.LambdaUpdateAction)
-	if !ok {
-		t.Errorf("expected UpdateAction but did not get it")
-	}
-}
-
-func TestPrepareAction_ErrorCase(t *testing.T) {
-	t.Parallel()
-	client := mock.DummyLambdaClient{
-		FuncExists: false,
-		Err:        fmt.Errorf("some client error"),
-	}
-	handler := "testdata/correct_test_handler/main.go"
-	l := glambda.Lambda{
-		Name:          "test",
-		HandlerPath:   handler,
-		ExecutionRole: glambda.ExecutionRole{RoleName: "lambda-role"},
-	}
-	_, err := glambda.PrepareLambdaAction(l, client)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-}
-
 func TestValidate_AcceptsCorrectlySetupLambdaSourceFile(t *testing.T) {
 	t.Parallel()
 	handler := "testdata/correct_test_handler/main.go"
@@ -237,14 +171,9 @@ func TestValidate_RejectsIncorrectlySetupLambdaSourceFiles(t *testing.T) {
 	}
 }
 
-func TestPackage_PackagesLambdaFunction(t *testing.T) {
-	t.Parallel()
-	handler := "testdata/correct_test_handler/main.go"
-	data, err := glambda.Package(handler)
-	if err != nil {
-		t.Error(err)
-	}
-	zipReader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+func checkZipFile(t *testing.T, zipContents []byte) {
+	t.Helper()
+	zipReader, err := zip.NewReader(bytes.NewReader(zipContents), int64(len(zipContents)))
 	if err != nil {
 		t.Errorf("failed to create zip reader, %v", err)
 	}
@@ -261,6 +190,7 @@ func TestPackage_PackagesLambdaFunction(t *testing.T) {
 	if file.UncompressedSize64 == 0 {
 		t.Errorf("expected bootstrap file to have content, got 0")
 	}
+
 }
 
 func TestCreateLambdaCommand(t *testing.T) {

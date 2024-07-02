@@ -2,77 +2,83 @@ package glambda
 
 import (
 	"archive/zip"
-	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 )
 
-// Package takes a path to a file, attempts to build it for the ARM64 architecture
+// PackageTo takes a path to a file, attempts to build it for the ARM64 architecture
 // and massages it into the format expected by AWS Lambda.
 //
 // The result is a zip file containing the executable binary within the context
 // of a file system.
-func Package(path string) ([]byte, error) {
-	data, err := buildBinary(path)
+func PackageTo(path string, output io.Writer) error {
+	tmpDir, err := os.MkdirTemp("", "bootstrap")
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return zipCode(data)
-}
+	defer os.Remove(tmpDir)
+	sourceFile, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
 
-func buildBinary(path string) ([]byte, error) {
-	err := os.Setenv("GOOS", "linux")
+	tmpGoPath := tmpDir + "/main.go"
+	tmpGoFile, err := os.Create(tmpGoPath)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	err = os.Setenv("GOARCH", "arm64")
-	if err != nil {
-		return nil, err
-	}
-	tempBootstrap, err := os.MkdirTemp("", "bootstrap")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(tempBootstrap)
+	defer tmpGoFile.Close()
 
-	tempBootstrap += "/bootstrap"
+	_, err = io.Copy(tmpGoFile, sourceFile)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("go", "mod", "init", "main")
+	cmd.Dir = tmpDir
+	err = cmd.Run()
+	if err != nil {
+		return err
+	}
 
-	cmd := exec.Command("go", "build", "-tags", "lambda.norpc", "-o", tempBootstrap, path)
+	cmd = exec.Command("go", "mod", "tidy")
+	cmd.Dir = tmpDir
+	err = cmd.Run()
+	if err != nil {
+		return err
+	}
+
+	executablePath := tmpDir + "/bootstrap"
+	cmd = exec.Command("go", "build", "-tags", "lambda.norpc", "-o", executablePath, tmpGoPath)
+	cmd.Dir = tmpDir
+	cmd.Env = append(cmd.Env, "GOOS=linux", "GOARCH=arm64", "GOMODCACHE="+tmpDir, "GOCACHE="+tmpDir)
 	msg, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("error building lambda function: %w, %s", err, msg)
+		return fmt.Errorf("error building lambda function: %w, %s", err, msg)
 	}
-
-	data, err := os.ReadFile(tempBootstrap)
-	if err != nil {
-		return nil, err
-	}
-
-	return data, nil
-}
-
-func zipCode(code []byte) ([]byte, error) {
-	buf := new(bytes.Buffer)
-	zipWriter := zip.NewWriter(buf)
+	zipWriter := zip.NewWriter(output)
 	header := &zip.FileHeader{
 		Name:   "bootstrap",
 		Method: zip.Deflate,
 	}
 	header.SetMode(0755)
 
-	// Add a file to the ZIP archive
-	f, err := zipWriter.CreateHeader(header)
+	zipContents, err := zipWriter.CreateHeader(header)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create zip file header: %v", err)
+		return fmt.Errorf("failed to create zip file header: %w", err)
 	}
-	_, err = f.Write(code)
+	executable, err := os.Open(executablePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write code to zip file: %v", err)
+		return fmt.Errorf("failed to open executable: %w", err)
+	}
+	defer executable.Close()
+
+	_, err = io.Copy(zipContents, executable)
+	if err != nil {
+		return fmt.Errorf("failed to write code to zip file: %w", err)
 	}
 	// Close the ZIP writer to finalize the archive
-	if err := zipWriter.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close zip writer: %v", err)
-	}
-	return buf.Bytes(), nil
+	return zipWriter.Close()
 }

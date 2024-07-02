@@ -115,21 +115,18 @@ func PackageCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("error getting output path, %w", err)
 			}
-			data, err := glambda.Package(sourceCodePath)
+			outputFile, err := os.Create(outputPath)
+			if err != nil {
+				return err
+			}
+			err = glambda.PackageTo(sourceCodePath, outputFile)
 			if err != nil {
 				return fmt.Errorf("error packaging lambda function, %w", err)
 			}
-			if outputPath == "" {
-				outputPath = "./package.zip"
-			}
-
-			err = os.WriteFile(outputPath, data, 0644)
-			if err != nil {
-				return fmt.Errorf("error writing package to disk, %w", err)
-			}
+			fmt.Println("File successfully written to", outputPath)
 			return nil
 		},
 	}
-	packageCmd.Flags().String("output", "package.zip", "Path to write the packaged lambda function.")
+	packageCmd.Flags().String("output", "bootstrap", "Path to write the packaged lambda function.")
 	return packageCmd
 }
