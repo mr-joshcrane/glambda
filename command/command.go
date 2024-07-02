@@ -119,6 +119,7 @@ func PackageCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer outputFile.Close()
 			err = glambda.PackageTo(sourceCodePath, outputFile)
 			if err != nil {
 				return fmt.Errorf("error packaging lambda function, %w", err)
