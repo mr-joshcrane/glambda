@@ -30,7 +30,7 @@ jobs:
 
       - name: "Install glambda and run through usecases"
         run: |
-          go install github.com/mr-joshcrane/glambda/cmd/glambda@latest
+          go install github.com/mr-joshcrane/glambda/cmd/glambda@${{ github.sha }}
           glambda package testdata/correct_test_handler/main.go
           glambda deploy integration testdata/correct_test_handler/main.go
           glambda delete integration
