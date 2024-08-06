@@ -44,12 +44,14 @@ func PackageTo(path string, output io.Writer) error {
 	}
 
 	cmd = exec.Command("go", "mod", "tidy")
+	envVars := os.Environ()
+	cmd.Env = append(envVars, "GOMODCACHE="+tmpDir, "GOCACHE="+tmpDir)
+
 	cmd.Dir = tmpDir
 	err = cmd.Run()
 	if err != nil {
 		return err
 	}
-
 	executablePath := tmpDir + "/bootstrap"
 	cmd = exec.Command("go", "build", "-tags", "lambda.norpc", "-o", executablePath, tmpGoPath)
 	cmd.Dir = tmpDir
