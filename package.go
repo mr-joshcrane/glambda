@@ -44,8 +44,8 @@ func PackageTo(path string, output io.Writer) error {
 	}
 
 	cmd = exec.Command("go", "mod", "tidy")
-	envVars := os.Environ()
-	cmd.Env = append(envVars, "GOMODCACHE="+tmpDir, "GOCACHE="+tmpDir)
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "GOMODCACHE="+tmpDir, "GOCACHE="+tmpDir)
 
 	cmd.Dir = tmpDir
 	err = cmd.Run()
