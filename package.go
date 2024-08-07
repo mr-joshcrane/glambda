@@ -38,9 +38,9 @@ func PackageTo(path string, output io.Writer) error {
 	}
 	cmd := exec.Command("go", "mod", "init", "main")
 	cmd.Dir = tmpDir
-	err = cmd.Run()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return err
+		return fmt.Errorf("error initializing go module: %s", string(out))
 	}
 
 	cmd = exec.Command("go", "mod", "tidy")
@@ -48,9 +48,9 @@ func PackageTo(path string, output io.Writer) error {
 	cmd.Env = append(cmd.Env, "GOMODCACHE="+tmpDir, "GOCACHE="+tmpDir)
 
 	cmd.Dir = tmpDir
-	err = cmd.Run()
+	out, err = cmd.CombinedOutput()
 	if err != nil {
-		return err
+		return fmt.Errorf("error tidying go module: %s", string(out))
 	}
 	executablePath := tmpDir + "/bootstrap"
 	cmd = exec.Command("go", "build", "-tags", "lambda.norpc", "-o", executablePath, tmpGoPath)
