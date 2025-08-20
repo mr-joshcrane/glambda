@@ -15,31 +15,6 @@ import (
 	mock "github.com/mr-joshcrane/glambda/testdata/mock_clients"
 )
 
-func copyTestHandler(t *testing.T) string {
-	tempDir := t.TempDir()
-	srcFile := "testdata/correct_test_handler/main.go"
-	dstFile := filepath.Join(tempDir, "main.go")
-
-	src, err := os.Open(srcFile)
-	if err != nil {
-		t.Fatalf("failed to open source file: %v", err)
-	}
-	defer src.Close()
-
-	dst, err := os.Create(dstFile)
-	if err != nil {
-		t.Fatalf("failed to create destination file: %v", err)
-	}
-	defer dst.Close()
-
-	_, err = io.Copy(dst, src)
-	if err != nil {
-		t.Fatalf("failed to copy file: %v", err)
-	}
-
-	return dstFile
-}
-
 func TestPackage_PackagesLambdaFunction(t *testing.T) {
 	t.Parallel()
 	handler := copyTestHandler(t)
@@ -51,6 +26,7 @@ func TestPackage_PackagesLambdaFunction(t *testing.T) {
 	if len(buf.Bytes()) == 0 {
 		t.Fatal("expected non-empty zip file")
 	}
+	checkZipFile(t, buf.Bytes())
 }
 
 func TestPrepareAction_CreateFunction(t *testing.T) {
