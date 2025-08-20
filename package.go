@@ -15,28 +15,37 @@ import (
 // The result is a zip file containing the executable binary within the context
 // of a file system.
 func PackageTo(path string, output io.Writer) error {
-	absolutepath, err := filepath.Abs(path)
+	tmpDir, err := os.MkdirTemp("", "bootstrap")
 	if err != nil {
-		return fmt.Errorf("failed to get absolute path: %w", err)
+		return err
 	}
-	dir := filepath.Dir(absolutepath)
+	defer os.RemoveAll(tmpDir)
+	
 	sourceFile, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer sourceFile.Close()
+
+	tmpGoPath := filepath.Join(tmpDir, "main.go")
+	tmpGoFile, err := os.Create(tmpGoPath)
+	if err != nil {
+		return err
+	}
+	defer tmpGoFile.Close()
+
+	_, err = io.Copy(tmpGoFile, sourceFile)
+	if err != nil {
+		return err
+	}
+	
 	cmd := exec.Command("go", "mod", "init", "main")
-	cmd.Dir = dir
+	cmd.Dir = tmpDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error initializing go module: %w, %s", err, string(out))
 	}
-	cmd = exec.Command("go", "mod", "tidy")
-	cmd.Dir = dir
-	out, err = cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("error tidying go module: %w, %s", err, string(out))
-	}
+
 	envs := os.Environ()
 	GOMODCACHE := os.Getenv("GOMODCACHE")
 	if GOMODCACHE == "" {
@@ -47,15 +56,23 @@ func PackageTo(path string, output io.Writer) error {
 		GOCACHE = filepath.Join(os.Getenv("HOME"), ".cache/go-build")
 	}
 
-	tempdir := os.TempDir()
-	executablePath := tempdir + "/bootstrap"
-	cmd = exec.Command("go", "build", "-tags", "lambda.norpc", "-o", executablePath, absolutepath)
-	cmd.Dir = dir
+	cmd = exec.Command("go", "mod", "tidy")
+	cmd.Env = append(envs, "GOMODCACHE="+GOMODCACHE, "GOCACHE="+GOCACHE)
+	cmd.Dir = tmpDir
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("error tidying go module: %w, %s", err, string(out))
+	}
+	
+	executablePath := filepath.Join(tmpDir, "bootstrap")
+	cmd = exec.Command("go", "build", "-tags", "lambda.norpc", "-o", executablePath, tmpGoPath)
+	cmd.Dir = tmpDir
 	cmd.Env = append(envs, "GOOS=linux", "GOARCH=arm64", "GOMODCACHE="+GOMODCACHE, "GOCACHE="+GOCACHE)
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error building lambda function: %w, %s", err, string(out))
 	}
+	
 	zipWriter := zip.NewWriter(output)
 	header := &zip.FileHeader{
 		Name:   "bootstrap",
