@@ -2,6 +2,7 @@ package command_test
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,17 +44,10 @@ func TestMain_ReturnsErrorAndHelpOnInvalidArgs(t *testing.T) {
 
 func TestMain_SuccessfullyPackagesALambdaWithThePackageCommand(t *testing.T) {
 	t.Parallel()
+	handler := copyTestHandler(t)
 	tempPath := t.TempDir() + "/package.zip"
-	err := os.Chdir("../testdata/correct_test_handler")
-	if err != nil {
-		t.Fatalf("Failed to change directory: %v", err)
-	}
-	absPath, err := filepath.Abs("main.go")
-	if err != nil {
-		t.Fatalf("Test setup for correct_test_handler failed: %v", err)
-	}
-	args := []string{"package", absPath, "--output", tempPath}
-	err = command.Main(args)
+	args := []string{"package", handler, "--output", tempPath}
+	err := command.Main(args)
 	if err != nil {
 		t.Fatalf("Failed to package lambda: %v", err)
 	}
@@ -61,4 +55,29 @@ func TestMain_SuccessfullyPackagesALambdaWithThePackageCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to find package.zip: %v", err)
 	}
+}
+
+func copyTestHandler(t *testing.T) string {
+	tempDir := t.TempDir()
+	srcFile := "../testdata/correct_test_handler/main.go"
+	dstFile := filepath.Join(tempDir, "main.go")
+
+	src, err := os.Open(srcFile)
+	if err != nil {
+		t.Fatalf("failed to open source file: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(dstFile)
+	if err != nil {
+		t.Fatalf("failed to create destination file: %v", err)
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, src)
+	if err != nil {
+		t.Fatalf("failed to copy file: %v", err)
+	}
+
+	return dstFile
 }

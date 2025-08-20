@@ -1,8 +1,6 @@
 package glambda_test
 
 import (
-	"archive/zip"
-	"bytes"
 	"fmt"
 	"os"
 	"regexp"
@@ -62,15 +60,16 @@ func TestGetAWSAccountID_ErrorCase(t *testing.T) {
 
 func TestNewLambda(t *testing.T) {
 	t.Parallel()
-	l, err := glambda.NewLambda("test", "testdata/correct_test_handler/main.go")
+	handler := copyTestHandler(t)
+	l, err := glambda.NewLambda("test", handler)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if l.Name != "test" {
 		t.Errorf("expected name to be test, got %s", l.Name)
 	}
-	if l.HandlerPath != "testdata/correct_test_handler/main.go" {
-		t.Errorf("expected handler path to be testdata/correct_test_handler/main.go, got %s", l.HandlerPath)
+	if l.HandlerPath != handler {
+		t.Errorf("expected handler path to be %s, got %s", handler, l.HandlerPath)
 	}
 	want := glambda.ExecutionRole{
 		RoleName:                 "glambda_exec_role_test",
@@ -127,7 +126,7 @@ func TestExecutionRole_AttachInLinePolicyCommand(t *testing.T) {
 }
 func TestValidate_AcceptsCorrectlySetupLambdaSourceFile(t *testing.T) {
 	t.Parallel()
-	handler := "testdata/correct_test_handler/main.go"
+	handler := copyTestHandler(t)
 	err := glambda.Validate(handler)
 	if err != nil {
 		t.Error(err)
@@ -169,28 +168,6 @@ func TestValidate_RejectsIncorrectlySetupLambdaSourceFiles(t *testing.T) {
 			}
 		})
 	}
-}
-
-func Can(t *testing.T, zipContents []byte) {
-	t.Helper()
-	zipReader, err := zip.NewReader(bytes.NewReader(zipContents), int64(len(zipContents)))
-	if err != nil {
-		t.Errorf("failed to create zip reader, %v", err)
-	}
-	if len(zipReader.File) != 1 {
-		t.Errorf("expected 1 file in zip, got %d", len(zipReader.File))
-	}
-	file := zipReader.File[0]
-	if file.Name != "bootstrap" {
-		t.Errorf("expected file name to be bootstrap, got %s", zipReader.File[0].Name)
-	}
-	if file.Mode() != 0o755 {
-		t.Errorf("expected bootstrap file mode to be 0755, got %d", zipReader.File[0].Mode())
-	}
-	if file.UncompressedSize64 == 0 {
-		t.Errorf("expected bootstrap file to have content, got 0")
-	}
-
 }
 
 func TestCreateLambdaCommand(t *testing.T) {
@@ -400,7 +377,7 @@ func TestCreateLambdaActionDo(t *testing.T) {
 	}
 	l := glambda.Lambda{
 		Name:        "testLambda",
-		HandlerPath: "testdata/correct_test_handler/main.go",
+		HandlerPath: copyTestHandler(t),
 		ExecutionRole: glambda.ExecutionRole{
 			RoleName:                 "lambda-role",
 			AssumeRolePolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`,
