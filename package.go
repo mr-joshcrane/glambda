@@ -27,10 +27,16 @@ func PackageTo(path string, output io.Writer) error {
 	defer sourceFile.Close()
 	cmd := exec.Command("go", "mod", "init", "main")
 	cmd.Dir = dir
-	cmd.Run()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("error initializing go module: %w, %s", err, string(out))
+	}
 	cmd = exec.Command("go", "mod", "tidy")
 	cmd.Dir = dir
-	cmd.Run()
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("error tidying go module: %w, %s", err, string(out))
+	}
 	envs := os.Environ()
 	GOMODCACHE := os.Getenv("GOMODCACHE")
 	if GOMODCACHE == "" {
@@ -41,18 +47,14 @@ func PackageTo(path string, output io.Writer) error {
 		GOCACHE = filepath.Join(os.Getenv("HOME"), ".cache/go-build")
 	}
 
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("error tidying go module: %s", string(out))
-	}
 	tempdir := os.TempDir()
 	executablePath := tempdir + "/bootstrap"
 	cmd = exec.Command("go", "build", "-tags", "lambda.norpc", "-o", executablePath, absolutepath)
 	cmd.Dir = dir
 	cmd.Env = append(envs, "GOOS=linux", "GOARCH=arm64", "GOMODCACHE="+GOMODCACHE, "GOCACHE="+GOCACHE)
-	msg, err := cmd.CombinedOutput()
+	out, err = cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("error building lambda function: %w, %s", err, msg)
+		return fmt.Errorf("error building lambda function: %w, %s", err, string(out))
 	}
 	zipWriter := zip.NewWriter(output)
 	header := &zip.FileHeader{
