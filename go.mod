@@ -3,7 +3,6 @@ module github.com/mr-joshcrane/glambda
 go 1.22
 
 require (
-	github.com/aws/aws-lambda-go v1.47.0
 	github.com/aws/aws-sdk-go-v2 v1.26.1
 	github.com/aws/aws-sdk-go-v2/config v1.27.11
 	github.com/aws/aws-sdk-go-v2/service/iam v1.32.0
@@ -26,6 +25,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.11.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.20.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.23.4 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
