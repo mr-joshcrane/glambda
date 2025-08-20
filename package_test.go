@@ -5,15 +5,43 @@ package glambda_test
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/mr-joshcrane/glambda"
 	mock "github.com/mr-joshcrane/glambda/testdata/mock_clients"
 )
 
+func copyTestHandler(t *testing.T) string {
+	tempDir := t.TempDir()
+	srcFile := "testdata/correct_test_handler/main.go"
+	dstFile := filepath.Join(tempDir, "main.go")
+
+	src, err := os.Open(srcFile)
+	if err != nil {
+		t.Fatalf("failed to open source file: %v", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(dstFile)
+	if err != nil {
+		t.Fatalf("failed to create destination file: %v", err)
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, src)
+	if err != nil {
+		t.Fatalf("failed to copy file: %v", err)
+	}
+
+	return dstFile
+}
+
 func TestPackage_PackagesLambdaFunction(t *testing.T) {
 	t.Parallel()
-	handler := "testdata/correct_test_handler/main.go"
+	handler := copyTestHandler(t)
 	buf := new(bytes.Buffer)
 	err := glambda.PackageTo(handler, buf)
 	if err != nil {
@@ -22,7 +50,6 @@ func TestPackage_PackagesLambdaFunction(t *testing.T) {
 	if len(buf.Bytes()) == 0 {
 		t.Fatal("expected non-empty zip file")
 	}
-	// checkZipFile(t, buf.Bytes())
 }
 
 func TestPrepareAction_CreateFunction(t *testing.T) {
@@ -32,14 +59,14 @@ func TestPrepareAction_CreateFunction(t *testing.T) {
 		FuncExists: false,
 		Err:        nil,
 	}
-	handler := "testdata/correct_test_handler/main.go"
+	handler := copyTestHandler(t)
 	l := glambda.Lambda{
 		Name:          "test",
 		HandlerPath:   handler,
 		ExecutionRole: glambda.ExecutionRole{RoleName: "lambda-role"},
 	}
 	action, err := glambda.PrepareLambdaAction(l, client)
-	if err != nil { 
+	if err != nil {
 		t.Fatal(err)
 	}
 	_, ok := action.(glambda.LambdaCreateAction)
@@ -55,7 +82,7 @@ func TestPrepareAction_UpdateFunction(t *testing.T) {
 		FuncExists: true,
 		Err:        nil,
 	}
-	handler := "testdata/correct_test_handler/main.go"
+	handler := copyTestHandler(t)
 	l := glambda.Lambda{
 		Name:          "test",
 		HandlerPath:   handler,
@@ -78,7 +105,7 @@ func TestPrepareAction_ErrorCase(t *testing.T) {
 		FuncExists: false,
 		Err:        fmt.Errorf("some client error"),
 	}
-	handler := "testdata/correct_test_handler/main.go"
+	handler := copyTestHandler(t)
 	l := glambda.Lambda{
 		Name:          "test",
 		HandlerPath:   handler,
