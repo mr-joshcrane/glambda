@@ -27,6 +27,7 @@ func PackageTo(path string, output io.Writer) error {
 	defer sourceFile.Close()
 	cmd := exec.Command("go", "mod", "init", "main")
 	cmd.Dir = dir
+	cmd.Run()
 	cmd = exec.Command("go", "mod", "tidy")
 	cmd.Dir = dir
 	envs := os.Environ()
