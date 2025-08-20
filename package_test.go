@@ -20,7 +20,7 @@ func TestPackage_PackagesLambdaFunction(t *testing.T) {
 		t.Error(err)
 	}
 	if len(buf.Bytes()) == 0 {
-		t.Error("expected non-empty zip file")
+		t.Fatal("expected non-empty zip file")
 	}
 	checkZipFile(t, buf.Bytes())
 }
