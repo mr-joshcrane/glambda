@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 // PackageTo takes a path to a file, attempts to build it for the ARM64 architecture
@@ -14,48 +15,39 @@ import (
 // The result is a zip file containing the executable binary within the context
 // of a file system.
 func PackageTo(path string, output io.Writer) error {
-	tmpDir, err := os.MkdirTemp("", "bootstrap")
+	absolutepath, err := filepath.Abs(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get absolute path: %w", err)
 	}
-	defer os.Remove(tmpDir)
+	dir := filepath.Dir(absolutepath)
 	sourceFile, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer sourceFile.Close()
-
-	tmpGoPath := tmpDir + "/main.go"
-	tmpGoFile, err := os.Create(tmpGoPath)
-	if err != nil {
-		return err
-	}
-	defer tmpGoFile.Close()
-
-	_, err = io.Copy(tmpGoFile, sourceFile)
-	if err != nil {
-		return err
-	}
 	cmd := exec.Command("go", "mod", "init", "main")
-	cmd.Dir = tmpDir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("error initializing go module: %s", string(out))
+	cmd.Dir = dir
+	cmd = exec.Command("go", "mod", "tidy")
+	cmd.Dir = dir
+	envs := os.Environ()
+	GOMODCACHE := os.Getenv("GOMODCACHE")
+	if GOMODCACHE == "" {
+		GOMODCACHE = filepath.Join(os.Getenv("HOME"), "go/pkg/mod")
+	}
+	GOCACHE := os.Getenv("GOCACHE")
+	if GOCACHE == "" {
+		GOCACHE = filepath.Join(os.Getenv("HOME"), ".cache/go-build")
 	}
 
-	cmd = exec.Command("go", "mod", "tidy")
-	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "GOMODCACHE="+tmpDir, "GOCACHE="+tmpDir)
-
-	cmd.Dir = tmpDir
-	out, err = cmd.CombinedOutput()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error tidying go module: %s", string(out))
 	}
-	executablePath := tmpDir + "/bootstrap"
-	cmd = exec.Command("go", "build", "-tags", "lambda.norpc", "-o", executablePath, tmpGoPath)
-	cmd.Dir = tmpDir
-	cmd.Env = append(cmd.Env, "GOOS=linux", "GOARCH=arm64", "GOMODCACHE="+tmpDir, "GOCACHE="+tmpDir)
+	tempdir := os.TempDir()
+	executablePath := tempdir + "/bootstrap"
+	cmd = exec.Command("go", "build", "-tags", "lambda.norpc", "-o", executablePath, absolutepath)
+	cmd.Dir = dir
+	cmd.Env = append(envs, "GOOS=linux", "GOARCH=arm64", "GOMODCACHE="+GOMODCACHE, "GOCACHE="+GOCACHE)
 	msg, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error building lambda function: %w, %s", err, msg)
