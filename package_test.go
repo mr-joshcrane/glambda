@@ -43,7 +43,7 @@ func TestPrepareAction_CreateFunction(t *testing.T) {
 		ExecutionRole: glambda.ExecutionRole{RoleName: "lambda-role"},
 	}
 	action, err := glambda.PrepareLambdaAction(l, client)
-	if err != nil {
+	if err != nil {YDo 
 		t.Fatal(err)
 	}
 	_, ok := action.(glambda.LambdaCreateAction)
