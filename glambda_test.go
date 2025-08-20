@@ -171,7 +171,7 @@ func TestValidate_RejectsIncorrectlySetupLambdaSourceFiles(t *testing.T) {
 	}
 }
 
-func checkZipFile(t *testing.T, zipContents []byte) {
+func Can(t *testing.T, zipContents []byte) {
 	t.Helper()
 	zipReader, err := zip.NewReader(bytes.NewReader(zipContents), int64(len(zipContents)))
 	if err != nil {
