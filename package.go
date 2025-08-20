@@ -26,6 +26,8 @@ func PackageTo(path string, output io.Writer) error {
 	}
 	defer sourceFile.Close()
 	cmd := exec.Command("go", "mod", "init", "main")
+	//go get github.com/aws/aws-lambda-go/lambda
+	cmd = exec.Command("go", "get", "github.com/aws/aws-lambda-go/lambda@latest")
 	cmd.Dir = dir
 	cmd = exec.Command("go", "mod", "tidy")
 	cmd.Dir = dir
