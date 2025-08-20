@@ -30,6 +30,7 @@ func PackageTo(path string, output io.Writer) error {
 	cmd.Run()
 	cmd = exec.Command("go", "mod", "tidy")
 	cmd.Dir = dir
+	cmd.Run()
 	envs := os.Environ()
 	GOMODCACHE := os.Getenv("GOMODCACHE")
 	if GOMODCACHE == "" {
