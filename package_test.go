@@ -19,6 +19,9 @@ func TestPackage_PackagesLambdaFunction(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+	if len(buf.Bytes()) == 0 {
+		t.Error("expected non-empty zip file")
+	}
 	checkZipFile(t, buf.Bytes())
 }
 
