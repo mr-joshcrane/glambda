@@ -47,9 +47,9 @@ If you've already got a deployment tool you'd prefer to use, no problem. You can
 
 ```bash
 ## Default output path is "./bootstrap" which is what AWS will be expecting
-glambda deploy package <path/to/handler.go>
+glambda package <path/to/handler.go>
 ## Alternatively you can provide the output path explicitly
-glambda deploy package <path/to/handler.go> --output /my/custom/filepath/artifact.zip
+glambda package <path/to/handler.go> --output /my/custom/filepath/artifact.zip
 ```
 
 From here you'll have the ability to take this zip file and do what needs doing in your tool of choice.
