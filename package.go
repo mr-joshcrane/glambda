@@ -20,7 +20,7 @@ func PackageTo(path string, output io.Writer) error {
 		return err
 	}
 	defer os.RemoveAll(tmpDir)
-	
+
 	sourceFile, err := os.Open(path)
 	if err != nil {
 		return err
@@ -38,7 +38,7 @@ func PackageTo(path string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	
+
 	cmd := exec.Command("go", "mod", "init", "main")
 	cmd.Dir = tmpDir
 	out, err := cmd.CombinedOutput()
@@ -57,28 +57,29 @@ func PackageTo(path string, output io.Writer) error {
 	}
 
 	cmd = exec.Command("go", "mod", "tidy")
-	cmd.Env = append(envs, "GOMODCACHE="+GOMODCACHE, "GOCACHE="+GOCACHE)
+	envs = append(envs, "GOMODCACHE="+GOMODCACHE, "GOCACHE="+GOCACHE)
+	cmd.Env = envs
 	cmd.Dir = tmpDir
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error tidying go module: %w, %s", err, string(out))
 	}
-	
+
 	executablePath := filepath.Join(tmpDir, "bootstrap")
 	cmd = exec.Command("go", "build", "-tags", "lambda.norpc", "-o", executablePath, tmpGoPath)
 	cmd.Dir = tmpDir
-	cmd.Env = append(envs, "GOOS=linux", "GOARCH=arm64", "GOMODCACHE="+GOMODCACHE, "GOCACHE="+GOCACHE)
+	cmd.Env = envs
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error building lambda function: %w, %s", err, string(out))
 	}
-	
+
 	zipWriter := zip.NewWriter(output)
 	header := &zip.FileHeader{
 		Name:   "bootstrap",
 		Method: zip.Deflate,
 	}
-	header.SetMode(0755)
+	header.SetMode(0o755)
 
 	zipContents, err := zipWriter.CreateHeader(header)
 	if err != nil {
