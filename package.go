@@ -57,7 +57,8 @@ func PackageTo(path string, output io.Writer) error {
 	}
 
 	cmd = exec.Command("go", "mod", "tidy")
-	cmd.Env = append(envs, "GOMODCACHE="+GOMODCACHE, "GOCACHE="+GOCACHE)
+	envs = append(envs, "GOMODCACHE="+GOMODCACHE, "GOCACHE="+GOCACHE)
+	cmd.Env = envs
 	cmd.Dir = tmpDir
 	out, err = cmd.CombinedOutput()
 	if err != nil {
@@ -67,7 +68,7 @@ func PackageTo(path string, output io.Writer) error {
 	executablePath := filepath.Join(tmpDir, "bootstrap")
 	cmd = exec.Command("go", "build", "-tags", "lambda.norpc", "-o", executablePath, tmpGoPath)
 	cmd.Dir = tmpDir
-	cmd.Env = append(envs, "GOMODCACHE="+GOMODCACHE, "GOCACHE="+GOCACHE)
+	cmd.Env = envs
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error building lambda function: %w, %s", err, string(out))
