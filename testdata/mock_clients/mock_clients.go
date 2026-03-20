@@ -32,10 +32,13 @@ func (d DummyLambdaClient) GetFunction(ctx context.Context, input *lambda.GetFun
 	tags, hasTags := d.FunctionTags[functionName]
 	if hasTags {
 		return &lambda.GetFunctionOutput{
-			Tags: tags,
+			Tags:          tags,
+			Configuration: &types.FunctionConfiguration{},
 		}, nil
 	}
-	return &lambda.GetFunctionOutput{}, nil
+	return &lambda.GetFunctionOutput{
+		Configuration: &types.FunctionConfiguration{},
+	}, nil
 }
 
 func (d DummyLambdaClient) CreateFunction(ctx context.Context, input *lambda.CreateFunctionInput, opts ...func(*lambda.Options)) (*lambda.CreateFunctionOutput, error) {

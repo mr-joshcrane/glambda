@@ -93,11 +93,15 @@ func DeployCommand() *cobra.Command {
 				opts = append(opts, glambda.WithDescription(description))
 			}
 			if environment != "" {
-				env, err := ParseEnvironment(environment)
-				if err != nil {
-					return err
+				if environment == "none" {
+					opts = append(opts, glambda.WithEnvironment(map[string]string{}))
+				} else {
+					env, err := ParseEnvironment(environment)
+					if err != nil {
+						return err
+					}
+					opts = append(opts, glambda.WithEnvironment(env))
 				}
-				opts = append(opts, glambda.WithEnvironment(env))
 			}
 
 			return glambda.Deploy(functionName, sourceCodePath, opts...)
@@ -109,7 +113,7 @@ func DeployCommand() *cobra.Command {
 	deployCmd.Flags().Int("timeout", 0, "Function timeout in seconds (1-900)")
 	deployCmd.Flags().Int("memory-size", 0, "Function memory in MB (128-10240)")
 	deployCmd.Flags().String("description", "", "Function description")
-	deployCmd.Flags().String("environment", "", "Environment variables as KEY1=VAL1,KEY2=VAL2")
+	deployCmd.Flags().String("environment", "", "Environment variables as KEY1=VAL1,KEY2=VAL2 or 'none' to clear all")
 	return deployCmd
 }
 

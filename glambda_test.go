@@ -285,6 +285,101 @@ func TestUpdateConfigurationCommand_EmptyConfig(t *testing.T) {
 	}
 }
 
+func TestMergeConfiguration_KeepsCurrentWhenNotSpecified(t *testing.T) {
+	t.Parallel()
+	timeout := int32(30)
+	memory := int32(256)
+	desc := "Current description"
+	current := &types.FunctionConfiguration{
+		Timeout:     &timeout,
+		MemorySize:  &memory,
+		Description: &desc,
+		Environment: &types.EnvironmentResponse{
+			Variables: map[string]string{
+				"KEY1": "value1",
+				"KEY2": "value2",
+			},
+		},
+	}
+
+	newTimeout := int32(60)
+	desired := glambda.LambdaConfig{
+		Timeout: &newTimeout,
+	}
+
+	merged := glambda.MergeConfiguration(current, desired)
+
+	if merged.Timeout == nil || *merged.Timeout != 60 {
+		t.Errorf("expected timeout 60, got %v", merged.Timeout)
+	}
+	if merged.MemorySize == nil || *merged.MemorySize != 256 {
+		t.Errorf("expected memory size 256 (from current), got %v", merged.MemorySize)
+	}
+	if merged.Description == nil || *merged.Description != "Current description" {
+		t.Errorf("expected current description, got %v", merged.Description)
+	}
+	if merged.Environment == nil || len(merged.Environment) != 2 {
+		t.Errorf("expected environment from current, got %v", merged.Environment)
+	}
+}
+
+func TestMergeConfiguration_ClearsEnvironmentWhenExplicitlySet(t *testing.T) {
+	t.Parallel()
+	current := &types.FunctionConfiguration{
+		Environment: &types.EnvironmentResponse{
+			Variables: map[string]string{
+				"KEY1": "value1",
+				"KEY2": "value2",
+			},
+		},
+	}
+
+	desired := glambda.LambdaConfig{
+		Environment:              map[string]string{},
+		EnvironmentExplicitlySet: true,
+	}
+
+	merged := glambda.MergeConfiguration(current, desired)
+
+	if merged.Environment == nil {
+		t.Error("expected empty environment map, got nil")
+	}
+	if len(merged.Environment) != 0 {
+		t.Errorf("expected empty environment, got %v", merged.Environment)
+	}
+}
+
+func TestMergeConfiguration_ReplacesEnvironmentWhenExplicitlySet(t *testing.T) {
+	t.Parallel()
+	current := &types.FunctionConfiguration{
+		Environment: &types.EnvironmentResponse{
+			Variables: map[string]string{
+				"KEY1": "value1",
+				"KEY2": "value2",
+			},
+		},
+	}
+
+	desired := glambda.LambdaConfig{
+		Environment: map[string]string{
+			"NEW_KEY": "new_value",
+		},
+		EnvironmentExplicitlySet: true,
+	}
+
+	merged := glambda.MergeConfiguration(current, desired)
+
+	if len(merged.Environment) != 1 {
+		t.Errorf("expected 1 environment variable, got %d", len(merged.Environment))
+	}
+	if merged.Environment["NEW_KEY"] != "new_value" {
+		t.Errorf("expected NEW_KEY=new_value, got %v", merged.Environment)
+	}
+	if _, exists := merged.Environment["KEY1"]; exists {
+		t.Error("expected KEY1 to be removed, but it still exists")
+	}
+}
+
 func TestPutRolePolicyCommand_WhereCommandExists(t *testing.T) {
 	t.Parallel()
 	role := glambda.ExecutionRole{
@@ -433,7 +528,8 @@ func TestUpdateLambdaActionDo(t *testing.T) {
 	client := mock.DummyLambdaClient{
 		FuncExists: true,
 	}
-	action := glambda.NewLambdaUpdateAction(client, glambda.Lambda{Name: "testLambda"}, []byte("some valid zip data"))
+	config := glambda.LambdaConfig{}
+	action := glambda.NewLambdaUpdateAction(client, glambda.Lambda{Name: "testLambda"}, []byte("some valid zip data"), config)
 	err := action.Do()
 	if err != nil {
 		t.Error(err)
@@ -575,6 +671,18 @@ func TestRetryableErrors_OperationalErrorsAreRetried(t *testing.T) {
 				Err: &types.InvalidParameterValueException{
 					Message: aws.String("The role defined for the function cannot be assumed by Lambda"),
 					Type:    aws.String("InvalidParameterValueException"),
+				},
+			},
+			want: aws.TrueTernary,
+		},
+		{
+			description: "ResourceConflictException",
+			err: &smithy.OperationError{
+				ServiceID:     "lambda",
+				OperationName: "UpdateFunctionConfiguration",
+				Err: &types.ResourceConflictException{
+					Message: aws.String("The operation cannot be performed at this time. An update is in progress"),
+					Type:    aws.String("ResourceConflictException"),
 				},
 			},
 			want: aws.TrueTernary,

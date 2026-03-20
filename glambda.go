@@ -33,10 +33,11 @@ type Lambda struct {
 // LambdaConfig represents the runtime configuration options for a Lambda function.
 // Use pointers to distinguish between "not set" and "set to a value".
 type LambdaConfig struct {
-	Timeout     *int32
-	MemorySize  *int32
-	Environment map[string]string
-	Description *string
+	Timeout                  *int32
+	MemorySize               *int32
+	Environment              map[string]string
+	EnvironmentExplicitlySet bool // true if --environment was passed (even if empty)
+	Description              *string
 }
 
 // ResourcePolicy is a struct that represents the policy that will be attached
@@ -165,11 +166,12 @@ type LambdaUpdateAction struct {
 }
 
 // NewLambdaUpdateAction is a constructor function that creates a new [LambdaUpdateAction].
-func NewLambdaUpdateAction(client LambdaClient, l Lambda, pkg []byte) LambdaUpdateAction {
+// The config parameter should be the merged configuration (current + desired).
+func NewLambdaUpdateAction(client LambdaClient, l Lambda, pkg []byte, config LambdaConfig) LambdaUpdateAction {
 	return LambdaUpdateAction{
 		client:                     client,
 		UpdateLambdaCommand:        UpdateLambdaCommand(l.Name, pkg),
-		UpdateConfigurationCommand: UpdateConfigurationCommand(l.Name, l.Config),
+		UpdateConfigurationCommand: UpdateConfigurationCommand(l.Name, config),
 		ResourcePolicyCommand:      l.CreateLambdaResourcePolicy(),
 	}
 }
@@ -306,6 +308,7 @@ func PrepareRoleAction(role ExecutionRole, iamClient IAMClient) (RoleAction, err
 // It will create the deployment package, and then determine if the lambda function
 // needs to be created. It will branch out into either a [LambdaCreateAction] or
 // a [LambdaUpdateAction] depending on the current state in AWS.
+// For updates, it fetches the current configuration and merges it with the desired configuration.
 func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
 	pkg := new(bytes.Buffer)
 	err := PackageTo(l.HandlerPath, pkg)
@@ -319,7 +322,14 @@ func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
 
 	var action LambdaAction
 	if exists {
-		action = NewLambdaUpdateAction(c, l, pkg.Bytes())
+		currentFunc, err := c.GetFunction(context.Background(), &lambda.GetFunctionInput{
+			FunctionName: aws.String(l.Name),
+		})
+		if err != nil {
+			return nil, err
+		}
+		mergedConfig := MergeConfiguration(currentFunc.Configuration, l.Config)
+		action = NewLambdaUpdateAction(c, l, pkg.Bytes(), mergedConfig)
 	} else {
 		action = NewLambdaCreateAction(c, l, pkg.Bytes())
 	}
@@ -395,13 +405,47 @@ func UpdateConfigurationCommand(name string, config LambdaConfig) *lambda.Update
 	if config.Description != nil {
 		input.Description = config.Description
 	}
-	if len(config.Environment) > 0 {
+	if config.Environment != nil {
 		input.Environment = &types.Environment{
 			Variables: config.Environment,
 		}
 	}
 
 	return input
+}
+
+// MergeConfiguration merges the desired configuration with the current Lambda configuration.
+// Fields specified in desired config override current values.
+// If EnvironmentExplicitlySet is true, use desired.Environment even if empty (allows clearing).
+// If EnvironmentExplicitlySet is false, merge with existing environment variables.
+func MergeConfiguration(current *types.FunctionConfiguration, desired LambdaConfig) LambdaConfig {
+	merged := LambdaConfig{}
+
+	if desired.Timeout != nil {
+		merged.Timeout = desired.Timeout
+	} else if current.Timeout != nil {
+		merged.Timeout = current.Timeout
+	}
+
+	if desired.MemorySize != nil {
+		merged.MemorySize = desired.MemorySize
+	} else if current.MemorySize != nil {
+		merged.MemorySize = current.MemorySize
+	}
+
+	if desired.Description != nil {
+		merged.Description = desired.Description
+	} else if current.Description != nil {
+		merged.Description = current.Description
+	}
+
+	if desired.EnvironmentExplicitlySet {
+		merged.Environment = desired.Environment
+	} else if current.Environment != nil && current.Environment.Variables != nil {
+		merged.Environment = current.Environment.Variables
+	}
+
+	return merged
 }
 
 // DeployOptions is any function that can be used to configure a [Lambda]
@@ -484,15 +528,11 @@ func WithMemorySize(memory int) DeployOptions {
 }
 
 // WithEnvironment is a deploy option that sets environment variables for the Lambda function.
-// The input is a map of key-value pairs.
+// The input is a map of key-value pairs. Pass an empty map to clear all environment variables.
 func WithEnvironment(env map[string]string) DeployOptions {
 	return func(l *Lambda) error {
-		if l.Config.Environment == nil {
-			l.Config.Environment = make(map[string]string)
-		}
-		for k, v := range env {
-			l.Config.Environment[k] = v
-		}
+		l.Config.Environment = env
+		l.Config.EnvironmentExplicitlySet = true
 		return nil
 	}
 }

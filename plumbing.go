@@ -203,5 +203,9 @@ func (r RetryableErrors) IsErrorRetryable(err error) aws.Ternary {
 	if errors.As(err, &lambdaErr) {
 		return aws.TrueTernary
 	}
+	var conflictErr *types.ResourceConflictException
+	if errors.As(err, &conflictErr) {
+		return aws.TrueTernary
+	}
 	return aws.FalseTernary
 }
