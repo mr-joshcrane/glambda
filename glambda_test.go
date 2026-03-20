@@ -243,6 +243,48 @@ func TestUpdateLambdaCommand(t *testing.T) {
 	}
 }
 
+func TestUpdateConfigurationCommand_WithConfig(t *testing.T) {
+	t.Parallel()
+	timeout := int32(60)
+	memory := int32(1024)
+	desc := "Updated function"
+	config := glambda.LambdaConfig{
+		Timeout:     &timeout,
+		MemorySize:  &memory,
+		Description: &desc,
+		Environment: map[string]string{
+			"ENV": "prod",
+		},
+	}
+	cmd := glambda.UpdateConfigurationCommand("lambdaName", config)
+
+	if cmd == nil {
+		t.Fatal("expected command, got nil")
+	}
+	if cmd.Timeout == nil || *cmd.Timeout != 60 {
+		t.Errorf("expected timeout 60, got %v", cmd.Timeout)
+	}
+	if cmd.MemorySize == nil || *cmd.MemorySize != 1024 {
+		t.Errorf("expected memory size 1024, got %v", cmd.MemorySize)
+	}
+	if cmd.Description == nil || *cmd.Description != "Updated function" {
+		t.Errorf("expected description 'Updated function', got %v", cmd.Description)
+	}
+	if cmd.Environment == nil || cmd.Environment.Variables["ENV"] != "prod" {
+		t.Errorf("expected ENV=prod, got %v", cmd.Environment)
+	}
+}
+
+func TestUpdateConfigurationCommand_EmptyConfig(t *testing.T) {
+	t.Parallel()
+	config := glambda.LambdaConfig{}
+	cmd := glambda.UpdateConfigurationCommand("lambdaName", config)
+
+	if cmd != nil {
+		t.Errorf("expected nil for empty config, got %v", cmd)
+	}
+}
+
 func TestPutRolePolicyCommand_WhereCommandExists(t *testing.T) {
 	t.Parallel()
 	role := glambda.ExecutionRole{

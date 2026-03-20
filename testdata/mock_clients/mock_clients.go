@@ -46,6 +46,10 @@ func (d DummyLambdaClient) UpdateFunctionCode(ctx context.Context, input *lambda
 	return &lambda.UpdateFunctionCodeOutput{}, d.Err
 }
 
+func (d DummyLambdaClient) UpdateFunctionConfiguration(ctx context.Context, input *lambda.UpdateFunctionConfigurationInput, opts ...func(*lambda.Options)) (*lambda.UpdateFunctionConfigurationOutput, error) {
+	return &lambda.UpdateFunctionConfigurationOutput{}, d.Err
+}
+
 func (d DummyLambdaClient) Invoke(ctx context.Context, input *lambda.InvokeInput, opts ...func(*lambda.Options)) (*lambda.InvokeOutput, error) {
 	return &lambda.InvokeOutput{
 		StatusCode: 200,
