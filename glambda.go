@@ -317,6 +317,9 @@ func CreateLambdaCommand(name, roleARN string, pkg []byte) *lambda.CreateFunctio
 		Code: &types.FunctionCode{
 			ZipFile: pkg,
 		},
+		Tags: map[string]string{
+			"ManagedBy": "glambda",
+		},
 	}
 }
 
@@ -503,4 +506,76 @@ func Delete(name string) error {
 		RoleName: aws.String(roleName),
 	})
 	return err
+}
+
+// LambdaInfo represents information about a Lambda function deployed by glambda
+type LambdaInfo struct {
+	Name         string
+	Runtime      string
+	LastModified string
+	Role         string
+}
+
+// ListGlambdaFunctions returns all Lambda functions that were deployed by glambda.
+// It identifies glambda-managed functions by the "ManagedBy: glambda" tag.
+// If a function cannot be accessed (permissions or deleted), it is skipped.
+func ListGlambdaFunctions(client LambdaClient) ([]LambdaInfo, error) {
+	var allFunctions []LambdaInfo
+	var marker *string
+
+	for {
+		output, err := client.ListFunctions(context.Background(), &lambda.ListFunctionsInput{
+			Marker: marker,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, fn := range output.Functions {
+			fnDetails, err := client.GetFunction(context.Background(), &lambda.GetFunctionInput{
+				FunctionName: fn.FunctionName,
+			})
+			if err != nil {
+				var resourceNotFound *types.ResourceNotFoundException
+				if errors.As(err, &resourceNotFound) {
+					continue
+				}
+				return nil, err
+			}
+
+			managedBy, ok := fnDetails.Tags["ManagedBy"]
+			if !ok {
+				continue
+			}
+			if managedBy != "glambda" {
+				continue
+			}
+
+			info := LambdaInfo{
+				Name:         aws.ToString(fn.FunctionName),
+				Runtime:      string(fn.Runtime),
+				LastModified: aws.ToString(fn.LastModified),
+				Role:         aws.ToString(fn.Role),
+			}
+			allFunctions = append(allFunctions, info)
+		}
+
+		if output.NextMarker == nil {
+			break
+		}
+		marker = output.NextMarker
+	}
+
+	return allFunctions, nil
+}
+
+// List returns all Lambda functions that were deployed by glambda.
+// It identifies glambda-managed functions by the "ManagedBy: glambda" tag.
+func List() ([]LambdaInfo, error) {
+	l, err := NewLambda("", "")
+	if err != nil {
+		return nil, err
+	}
+	lambdaClient := lambda.NewFromConfig(l.cfg)
+	return ListGlambdaFunctions(lambdaClient)
 }

@@ -17,19 +17,25 @@ type DummyLambdaClient struct {
 	ConsistantAfterXRetries *int
 	FuncExists              bool
 	Err                     error
+	Functions               []types.FunctionConfiguration
+	FunctionTags            map[string]map[string]string
 }
 
 func (d DummyLambdaClient) GetFunction(ctx context.Context, input *lambda.GetFunctionInput, opts ...func(*lambda.Options)) (*lambda.GetFunctionOutput, error) {
-	if d.FuncExists {
-		return &lambda.GetFunctionOutput{}, nil
-	}
-	if !d.FuncExists && d.Err == nil {
-		return &lambda.GetFunctionOutput{}, new(types.ResourceNotFoundException)
-	}
 	if d.Err != nil {
 		return &lambda.GetFunctionOutput{}, d.Err
 	}
-	return &lambda.GetFunctionOutput{}, d.Err
+	if !d.FuncExists && d.FunctionTags == nil {
+		return &lambda.GetFunctionOutput{}, new(types.ResourceNotFoundException)
+	}
+	functionName := aws.ToString(input.FunctionName)
+	tags, hasTags := d.FunctionTags[functionName]
+	if hasTags {
+		return &lambda.GetFunctionOutput{
+			Tags: tags,
+		}, nil
+	}
+	return &lambda.GetFunctionOutput{}, nil
 }
 
 func (d DummyLambdaClient) CreateFunction(ctx context.Context, input *lambda.CreateFunctionInput, opts ...func(*lambda.Options)) (*lambda.CreateFunctionOutput, error) {
@@ -66,6 +72,15 @@ func (d DummyLambdaClient) AddPermission(ctx context.Context, input *lambda.AddP
 
 func (d DummyLambdaClient) DeleteFunction(ctx context.Context, input *lambda.DeleteFunctionInput, opts ...func(*lambda.Options)) (*lambda.DeleteFunctionOutput, error) {
 	return &lambda.DeleteFunctionOutput{}, nil
+}
+
+func (d DummyLambdaClient) ListFunctions(ctx context.Context, input *lambda.ListFunctionsInput, opts ...func(*lambda.Options)) (*lambda.ListFunctionsOutput, error) {
+	if d.Err != nil {
+		return nil, d.Err
+	}
+	return &lambda.ListFunctionsOutput{
+		Functions: d.Functions,
+	}, nil
 }
 
 type DummyIAMClient struct {

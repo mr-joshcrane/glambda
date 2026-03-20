@@ -182,6 +182,9 @@ func TestCreateLambdaCommand(t *testing.T) {
 		Architectures: []types.Architecture{"arm64"},
 		Handler:       aws.String("/var/task/bootstrap"),
 		Runtime:       types.RuntimeProvidedal2023,
+		Tags: map[string]string{
+			"ManagedBy": "glambda",
+		},
 	}
 	ignore := cmpopts.IgnoreUnexported(lambda.CreateFunctionInput{}, types.FunctionCode{})
 	if !cmp.Equal(cmd, want, ignore) {
@@ -657,5 +660,84 @@ func TestWithInlinePolicy_CanDetectInvalidPolicyCases(t *testing.T) {
 				t.Errorf("%s, expected error, got nil", tc.description)
 			}
 		})
+	}
+}
+
+func TestListGlambdaFunctions_FiltersGlambdaManagedFunctions(t *testing.T) {
+	t.Parallel()
+	client := mock.DummyLambdaClient{
+		Functions: []types.FunctionConfiguration{
+			{
+				FunctionName: aws.String("glambda-function"),
+				Runtime:      types.RuntimeProvidedal2023,
+				LastModified: aws.String("2024-01-01T00:00:00.000+0000"),
+				Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+			},
+			{
+				FunctionName: aws.String("other-function"),
+				Runtime:      types.RuntimePython312,
+				LastModified: aws.String("2024-01-02T00:00:00.000+0000"),
+				Role:         aws.String("arn:aws:iam::123456789012:role/other-role"),
+			},
+		},
+		FunctionTags: map[string]map[string]string{
+			"glambda-function": {
+				"ManagedBy": "glambda",
+			},
+			"other-function": {
+				"ManagedBy": "terraform",
+			},
+		},
+	}
+
+	functions, err := glambda.ListGlambdaFunctions(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(functions) != 1 {
+		t.Errorf("expected 1 function, got %d", len(functions))
+	}
+
+	if functions[0].Name != "glambda-function" {
+		t.Errorf("expected function name 'glambda-function', got %s", functions[0].Name)
+	}
+}
+
+func TestListGlambdaFunctions_ReturnsEmptyListWhenNoGlambdaFunctions(t *testing.T) {
+	t.Parallel()
+	client := mock.DummyLambdaClient{
+		Functions: []types.FunctionConfiguration{
+			{
+				FunctionName: aws.String("other-function"),
+				Runtime:      types.RuntimePython312,
+			},
+		},
+		FunctionTags: map[string]map[string]string{
+			"other-function": {
+				"ManagedBy": "terraform",
+			},
+		},
+	}
+
+	functions, err := glambda.ListGlambdaFunctions(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(functions) != 0 {
+		t.Errorf("expected 0 functions, got %d", len(functions))
+	}
+}
+
+func TestListGlambdaFunctions_ReturnsErrorOnListFailure(t *testing.T) {
+	t.Parallel()
+	client := mock.DummyLambdaClient{
+		Err: fmt.Errorf("API error"),
+	}
+
+	_, err := glambda.ListGlambdaFunctions(client)
+	if err == nil {
+		t.Error("expected error, got nil")
 	}
 }

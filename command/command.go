@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mr-joshcrane/glambda"
 	"github.com/spf13/cobra"
@@ -35,6 +36,7 @@ func Main(args []string, opts ...CommandOptions) error {
 		DeployCommand(),
 		DeleteCommand(),
 		PackageCommand(),
+		ListCommand(),
 	}
 	for _, opt := range opts {
 		err := opt(rootCmd)
@@ -130,4 +132,31 @@ func PackageCommand() *cobra.Command {
 	}
 	packageCmd.Flags().String("output", "bootstrap", "Path to write the packaged lambda function.")
 	return packageCmd
+}
+
+func ListCommand() *cobra.Command {
+	var listCmd = &cobra.Command{
+		Use:          "list",
+		Short:        "List all Lambda functions deployed by glambda.",
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+		Example:      `glambda list`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			functions, err := glambda.List()
+			if err != nil {
+				return err
+			}
+			if len(functions) == 0 {
+				fmt.Println("No glambda-managed Lambda functions found.")
+				return nil
+			}
+			fmt.Printf("%-30s %-20s %-30s\n", "NAME", "RUNTIME", "LAST MODIFIED")
+			fmt.Println(strings.Repeat("-", 80))
+			for _, fn := range functions {
+				fmt.Printf("%-30s %-20s %-30s\n", fn.Name, fn.Runtime, fn.LastModified)
+			}
+			return nil
+		},
+	}
+	return listCmd
 }
