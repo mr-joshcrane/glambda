@@ -172,7 +172,8 @@ func TestValidate_RejectsIncorrectlySetupLambdaSourceFiles(t *testing.T) {
 
 func TestCreateLambdaCommand(t *testing.T) {
 	t.Parallel()
-	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"))
+	config := glambda.LambdaConfig{}
+	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"), config)
 	want := &lambda.CreateFunctionInput{
 		FunctionName: aws.String("lambdaName"),
 		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-role"),
@@ -189,6 +190,42 @@ func TestCreateLambdaCommand(t *testing.T) {
 	ignore := cmpopts.IgnoreUnexported(lambda.CreateFunctionInput{}, types.FunctionCode{})
 	if !cmp.Equal(cmd, want, ignore) {
 		t.Error(cmp.Diff(cmd, want, ignore))
+	}
+}
+
+func TestCreateLambdaCommand_WithConfig(t *testing.T) {
+	t.Parallel()
+	timeout := int32(30)
+	memory := int32(512)
+	desc := "Test function"
+	config := glambda.LambdaConfig{
+		Timeout:     &timeout,
+		MemorySize:  &memory,
+		Description: &desc,
+		Environment: map[string]string{
+			"KEY1": "value1",
+			"KEY2": "value2",
+		},
+	}
+	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"), config)
+
+	if cmd.Timeout == nil || *cmd.Timeout != 30 {
+		t.Errorf("expected timeout 30, got %v", cmd.Timeout)
+	}
+	if cmd.MemorySize == nil || *cmd.MemorySize != 512 {
+		t.Errorf("expected memory size 512, got %v", cmd.MemorySize)
+	}
+	if cmd.Description == nil || *cmd.Description != "Test function" {
+		t.Errorf("expected description 'Test function', got %v", cmd.Description)
+	}
+	if cmd.Environment == nil {
+		t.Fatal("expected environment to be set")
+	}
+	if cmd.Environment.Variables["KEY1"] != "value1" {
+		t.Errorf("expected KEY1=value1, got %s", cmd.Environment.Variables["KEY1"])
+	}
+	if cmd.Environment.Variables["KEY2"] != "value2" {
+		t.Errorf("expected KEY2=value2, got %s", cmd.Environment.Variables["KEY2"])
 	}
 }
 
@@ -660,6 +697,74 @@ func TestWithInlinePolicy_CanDetectInvalidPolicyCases(t *testing.T) {
 				t.Errorf("%s, expected error, got nil", tc.description)
 			}
 		})
+	}
+}
+
+func TestWithTimeout(t *testing.T) {
+	t.Parallel()
+	l := glambda.Lambda{}
+	opt := glambda.WithTimeout(60)
+	err := opt(&l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Config.Timeout == nil {
+		t.Fatal("expected timeout to be set")
+	}
+	if *l.Config.Timeout != 60 {
+		t.Errorf("expected timeout 60, got %d", *l.Config.Timeout)
+	}
+}
+
+func TestWithMemorySize(t *testing.T) {
+	t.Parallel()
+	l := glambda.Lambda{}
+	opt := glambda.WithMemorySize(1024)
+	err := opt(&l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Config.MemorySize == nil {
+		t.Fatal("expected memory size to be set")
+	}
+	if *l.Config.MemorySize != 1024 {
+		t.Errorf("expected memory size 1024, got %d", *l.Config.MemorySize)
+	}
+}
+
+func TestWithEnvironment(t *testing.T) {
+	t.Parallel()
+	l := glambda.Lambda{}
+	env := map[string]string{
+		"KEY1": "value1",
+		"KEY2": "value2",
+	}
+	opt := glambda.WithEnvironment(env)
+	err := opt(&l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Config.Environment["KEY1"] != "value1" {
+		t.Errorf("expected KEY1=value1, got %s", l.Config.Environment["KEY1"])
+	}
+	if l.Config.Environment["KEY2"] != "value2" {
+		t.Errorf("expected KEY2=value2, got %s", l.Config.Environment["KEY2"])
+	}
+}
+
+func TestWithDescription(t *testing.T) {
+	t.Parallel()
+	l := glambda.Lambda{}
+	opt := glambda.WithDescription("My test function")
+	err := opt(&l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Config.Description == nil {
+		t.Fatal("expected description to be set")
+	}
+	if *l.Config.Description != "My test function" {
+		t.Errorf("expected description 'My test function', got %s", *l.Config.Description)
 	}
 }
 
