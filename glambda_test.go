@@ -172,7 +172,8 @@ func TestValidate_RejectsIncorrectlySetupLambdaSourceFiles(t *testing.T) {
 
 func TestCreateLambdaCommand(t *testing.T) {
 	t.Parallel()
-	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"))
+	config := glambda.LambdaConfig{}
+	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"), config)
 	want := &lambda.CreateFunctionInput{
 		FunctionName: aws.String("lambdaName"),
 		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-role"),
@@ -182,10 +183,49 @@ func TestCreateLambdaCommand(t *testing.T) {
 		Architectures: []types.Architecture{"arm64"},
 		Handler:       aws.String("/var/task/bootstrap"),
 		Runtime:       types.RuntimeProvidedal2023,
+		Tags: map[string]string{
+			"ManagedBy": "glambda",
+		},
 	}
 	ignore := cmpopts.IgnoreUnexported(lambda.CreateFunctionInput{}, types.FunctionCode{})
 	if !cmp.Equal(cmd, want, ignore) {
 		t.Error(cmp.Diff(cmd, want, ignore))
+	}
+}
+
+func TestCreateLambdaCommand_WithConfig(t *testing.T) {
+	t.Parallel()
+	timeout := int32(30)
+	memory := int32(512)
+	desc := "Test function"
+	config := glambda.LambdaConfig{
+		Timeout:     &timeout,
+		MemorySize:  &memory,
+		Description: &desc,
+		Environment: map[string]string{
+			"KEY1": "value1",
+			"KEY2": "value2",
+		},
+	}
+	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"), config)
+
+	if cmd.Timeout == nil || *cmd.Timeout != 30 {
+		t.Errorf("expected timeout 30, got %v", cmd.Timeout)
+	}
+	if cmd.MemorySize == nil || *cmd.MemorySize != 512 {
+		t.Errorf("expected memory size 512, got %v", cmd.MemorySize)
+	}
+	if cmd.Description == nil || *cmd.Description != "Test function" {
+		t.Errorf("expected description 'Test function', got %v", cmd.Description)
+	}
+	if cmd.Environment == nil {
+		t.Fatal("expected environment to be set")
+	}
+	if cmd.Environment.Variables["KEY1"] != "value1" {
+		t.Errorf("expected KEY1=value1, got %s", cmd.Environment.Variables["KEY1"])
+	}
+	if cmd.Environment.Variables["KEY2"] != "value2" {
+		t.Errorf("expected KEY2=value2, got %s", cmd.Environment.Variables["KEY2"])
 	}
 }
 
@@ -200,6 +240,143 @@ func TestUpdateLambdaCommand(t *testing.T) {
 	ignore := cmpopts.IgnoreUnexported(lambda.UpdateFunctionCodeInput{})
 	if !cmp.Equal(cmd, want, ignore) {
 		t.Error(cmp.Diff(cmd, want, ignore))
+	}
+}
+
+func TestUpdateConfigurationCommand_WithConfig(t *testing.T) {
+	t.Parallel()
+	timeout := int32(60)
+	memory := int32(1024)
+	desc := "Updated function"
+	config := glambda.LambdaConfig{
+		Timeout:     &timeout,
+		MemorySize:  &memory,
+		Description: &desc,
+		Environment: map[string]string{
+			"ENV": "prod",
+		},
+	}
+	cmd := glambda.UpdateConfigurationCommand("lambdaName", config)
+
+	if cmd == nil {
+		t.Fatal("expected command, got nil")
+	}
+	if cmd.Timeout == nil || *cmd.Timeout != 60 {
+		t.Errorf("expected timeout 60, got %v", cmd.Timeout)
+	}
+	if cmd.MemorySize == nil || *cmd.MemorySize != 1024 {
+		t.Errorf("expected memory size 1024, got %v", cmd.MemorySize)
+	}
+	if cmd.Description == nil || *cmd.Description != "Updated function" {
+		t.Errorf("expected description 'Updated function', got %v", cmd.Description)
+	}
+	if cmd.Environment == nil || cmd.Environment.Variables["ENV"] != "prod" {
+		t.Errorf("expected ENV=prod, got %v", cmd.Environment)
+	}
+}
+
+func TestUpdateConfigurationCommand_EmptyConfig(t *testing.T) {
+	t.Parallel()
+	config := glambda.LambdaConfig{}
+	cmd := glambda.UpdateConfigurationCommand("lambdaName", config)
+
+	if cmd != nil {
+		t.Errorf("expected nil for empty config, got %v", cmd)
+	}
+}
+
+func TestMergeConfiguration_KeepsCurrentWhenNotSpecified(t *testing.T) {
+	t.Parallel()
+	timeout := int32(30)
+	memory := int32(256)
+	desc := "Current description"
+	current := &types.FunctionConfiguration{
+		Timeout:     &timeout,
+		MemorySize:  &memory,
+		Description: &desc,
+		Environment: &types.EnvironmentResponse{
+			Variables: map[string]string{
+				"KEY1": "value1",
+				"KEY2": "value2",
+			},
+		},
+	}
+
+	newTimeout := int32(60)
+	desired := glambda.LambdaConfig{
+		Timeout: &newTimeout,
+	}
+
+	merged := glambda.MergeConfiguration(current, desired)
+
+	if merged.Timeout == nil || *merged.Timeout != 60 {
+		t.Errorf("expected timeout 60, got %v", merged.Timeout)
+	}
+	if merged.MemorySize == nil || *merged.MemorySize != 256 {
+		t.Errorf("expected memory size 256 (from current), got %v", merged.MemorySize)
+	}
+	if merged.Description == nil || *merged.Description != "Current description" {
+		t.Errorf("expected current description, got %v", merged.Description)
+	}
+	if merged.Environment == nil || len(merged.Environment) != 2 {
+		t.Errorf("expected environment from current, got %v", merged.Environment)
+	}
+}
+
+func TestMergeConfiguration_ClearsEnvironmentWhenExplicitlySet(t *testing.T) {
+	t.Parallel()
+	current := &types.FunctionConfiguration{
+		Environment: &types.EnvironmentResponse{
+			Variables: map[string]string{
+				"KEY1": "value1",
+				"KEY2": "value2",
+			},
+		},
+	}
+
+	desired := glambda.LambdaConfig{
+		Environment:              map[string]string{},
+		EnvironmentExplicitlySet: true,
+	}
+
+	merged := glambda.MergeConfiguration(current, desired)
+
+	if merged.Environment == nil {
+		t.Error("expected empty environment map, got nil")
+	}
+	if len(merged.Environment) != 0 {
+		t.Errorf("expected empty environment, got %v", merged.Environment)
+	}
+}
+
+func TestMergeConfiguration_ReplacesEnvironmentWhenExplicitlySet(t *testing.T) {
+	t.Parallel()
+	current := &types.FunctionConfiguration{
+		Environment: &types.EnvironmentResponse{
+			Variables: map[string]string{
+				"KEY1": "value1",
+				"KEY2": "value2",
+			},
+		},
+	}
+
+	desired := glambda.LambdaConfig{
+		Environment: map[string]string{
+			"NEW_KEY": "new_value",
+		},
+		EnvironmentExplicitlySet: true,
+	}
+
+	merged := glambda.MergeConfiguration(current, desired)
+
+	if len(merged.Environment) != 1 {
+		t.Errorf("expected 1 environment variable, got %d", len(merged.Environment))
+	}
+	if merged.Environment["NEW_KEY"] != "new_value" {
+		t.Errorf("expected NEW_KEY=new_value, got %v", merged.Environment)
+	}
+	if _, exists := merged.Environment["KEY1"]; exists {
+		t.Error("expected KEY1 to be removed, but it still exists")
 	}
 }
 
@@ -351,7 +528,8 @@ func TestUpdateLambdaActionDo(t *testing.T) {
 	client := mock.DummyLambdaClient{
 		FuncExists: true,
 	}
-	action := glambda.NewLambdaUpdateAction(client, glambda.Lambda{Name: "testLambda"}, []byte("some valid zip data"))
+	config := glambda.LambdaConfig{}
+	action := glambda.NewLambdaUpdateAction(client, glambda.Lambda{Name: "testLambda"}, []byte("some valid zip data"), config)
 	err := action.Do()
 	if err != nil {
 		t.Error(err)
@@ -493,6 +671,18 @@ func TestRetryableErrors_OperationalErrorsAreRetried(t *testing.T) {
 				Err: &types.InvalidParameterValueException{
 					Message: aws.String("The role defined for the function cannot be assumed by Lambda"),
 					Type:    aws.String("InvalidParameterValueException"),
+				},
+			},
+			want: aws.TrueTernary,
+		},
+		{
+			description: "ResourceConflictException",
+			err: &smithy.OperationError{
+				ServiceID:     "lambda",
+				OperationName: "UpdateFunctionConfiguration",
+				Err: &types.ResourceConflictException{
+					Message: aws.String("The operation cannot be performed at this time. An update is in progress"),
+					Type:    aws.String("ResourceConflictException"),
 				},
 			},
 			want: aws.TrueTernary,
@@ -657,5 +847,152 @@ func TestWithInlinePolicy_CanDetectInvalidPolicyCases(t *testing.T) {
 				t.Errorf("%s, expected error, got nil", tc.description)
 			}
 		})
+	}
+}
+
+func TestWithTimeout(t *testing.T) {
+	t.Parallel()
+	l := glambda.Lambda{}
+	opt := glambda.WithTimeout(60)
+	err := opt(&l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Config.Timeout == nil {
+		t.Fatal("expected timeout to be set")
+	}
+	if *l.Config.Timeout != 60 {
+		t.Errorf("expected timeout 60, got %d", *l.Config.Timeout)
+	}
+}
+
+func TestWithMemorySize(t *testing.T) {
+	t.Parallel()
+	l := glambda.Lambda{}
+	opt := glambda.WithMemorySize(1024)
+	err := opt(&l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Config.MemorySize == nil {
+		t.Fatal("expected memory size to be set")
+	}
+	if *l.Config.MemorySize != 1024 {
+		t.Errorf("expected memory size 1024, got %d", *l.Config.MemorySize)
+	}
+}
+
+func TestWithEnvironment(t *testing.T) {
+	t.Parallel()
+	l := glambda.Lambda{}
+	env := map[string]string{
+		"KEY1": "value1",
+		"KEY2": "value2",
+	}
+	opt := glambda.WithEnvironment(env)
+	err := opt(&l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Config.Environment["KEY1"] != "value1" {
+		t.Errorf("expected KEY1=value1, got %s", l.Config.Environment["KEY1"])
+	}
+	if l.Config.Environment["KEY2"] != "value2" {
+		t.Errorf("expected KEY2=value2, got %s", l.Config.Environment["KEY2"])
+	}
+}
+
+func TestWithDescription(t *testing.T) {
+	t.Parallel()
+	l := glambda.Lambda{}
+	opt := glambda.WithDescription("My test function")
+	err := opt(&l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Config.Description == nil {
+		t.Fatal("expected description to be set")
+	}
+	if *l.Config.Description != "My test function" {
+		t.Errorf("expected description 'My test function', got %s", *l.Config.Description)
+	}
+}
+
+func TestListGlambdaFunctions_FiltersGlambdaManagedFunctions(t *testing.T) {
+	t.Parallel()
+	client := mock.DummyLambdaClient{
+		Functions: []types.FunctionConfiguration{
+			{
+				FunctionName: aws.String("glambda-function"),
+				Runtime:      types.RuntimeProvidedal2023,
+				LastModified: aws.String("2024-01-01T00:00:00.000+0000"),
+				Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+			},
+			{
+				FunctionName: aws.String("other-function"),
+				Runtime:      types.RuntimePython312,
+				LastModified: aws.String("2024-01-02T00:00:00.000+0000"),
+				Role:         aws.String("arn:aws:iam::123456789012:role/other-role"),
+			},
+		},
+		FunctionTags: map[string]map[string]string{
+			"glambda-function": {
+				"ManagedBy": "glambda",
+			},
+			"other-function": {
+				"ManagedBy": "terraform",
+			},
+		},
+	}
+
+	functions, err := glambda.ListGlambdaFunctions(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(functions) != 1 {
+		t.Errorf("expected 1 function, got %d", len(functions))
+	}
+
+	if functions[0].Name != "glambda-function" {
+		t.Errorf("expected function name 'glambda-function', got %s", functions[0].Name)
+	}
+}
+
+func TestListGlambdaFunctions_ReturnsEmptyListWhenNoGlambdaFunctions(t *testing.T) {
+	t.Parallel()
+	client := mock.DummyLambdaClient{
+		Functions: []types.FunctionConfiguration{
+			{
+				FunctionName: aws.String("other-function"),
+				Runtime:      types.RuntimePython312,
+			},
+		},
+		FunctionTags: map[string]map[string]string{
+			"other-function": {
+				"ManagedBy": "terraform",
+			},
+		},
+	}
+
+	functions, err := glambda.ListGlambdaFunctions(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(functions) != 0 {
+		t.Errorf("expected 0 functions, got %d", len(functions))
+	}
+}
+
+func TestListGlambdaFunctions_ReturnsErrorOnListFailure(t *testing.T) {
+	t.Parallel()
+	client := mock.DummyLambdaClient{
+		Err: fmt.Errorf("API error"),
+	}
+
+	_, err := glambda.ListGlambdaFunctions(client)
+	if err == nil {
+		t.Error("expected error, got nil")
 	}
 }

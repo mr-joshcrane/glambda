@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mr-joshcrane/glambda"
 	"github.com/spf13/cobra"
@@ -35,6 +36,7 @@ func Main(args []string, opts ...CommandOptions) error {
 		DeployCommand(),
 		DeleteCommand(),
 		PackageCommand(),
+		ListCommand(),
 	}
 	for _, opt := range opts {
 		err := opt(rootCmd)
@@ -70,17 +72,73 @@ func DeployCommand() *cobra.Command {
 			managedPolicies, _ := cmd.Flags().GetString("managed-policies")
 			inlinePolicy, _ := cmd.Flags().GetString("inline-policy")
 			resourcePolicy, _ := cmd.Flags().GetString("resource-policy")
-			return glambda.Deploy(functionName, sourceCodePath,
+			timeout, _ := cmd.Flags().GetInt("timeout")
+			memorySize, _ := cmd.Flags().GetInt("memory-size")
+			description, _ := cmd.Flags().GetString("description")
+			environment, _ := cmd.Flags().GetString("environment")
+
+			opts := []glambda.DeployOptions{
 				glambda.WithManagedPolicies(managedPolicies),
 				glambda.WithInlinePolicy(inlinePolicy),
 				glambda.WithResourcePolicy(resourcePolicy),
-			)
+			}
+
+			if timeout > 0 {
+				opts = append(opts, glambda.WithTimeout(timeout))
+			}
+			if memorySize > 0 {
+				opts = append(opts, glambda.WithMemorySize(memorySize))
+			}
+			if description != "" {
+				opts = append(opts, glambda.WithDescription(description))
+			}
+			if environment != "" {
+				if environment == "none" {
+					opts = append(opts, glambda.WithEnvironment(map[string]string{}))
+				} else {
+					env, err := ParseEnvironment(environment)
+					if err != nil {
+						return err
+					}
+					opts = append(opts, glambda.WithEnvironment(env))
+				}
+			}
+
+			return glambda.Deploy(functionName, sourceCodePath, opts...)
 		},
 	}
 	deployCmd.Flags().String("managed-policies", "", "Managed policies to attach to the lambda function.")
 	deployCmd.Flags().String("inline-policy", "", "Inline policy to attach to the lambda function.")
 	deployCmd.Flags().String("resource-policy", "", "Resource policy to attach to the lambda function.")
+	deployCmd.Flags().Int("timeout", 0, "Function timeout in seconds (1-900)")
+	deployCmd.Flags().Int("memory-size", 0, "Function memory in MB (128-10240)")
+	deployCmd.Flags().String("description", "", "Function description")
+	deployCmd.Flags().String("environment", "", "Environment variables as KEY1=VAL1,KEY2=VAL2 or 'none' to clear all")
 	return deployCmd
+}
+
+// ParseEnvironment converts a comma-separated string of KEY=VALUE pairs into a map.
+// Format: "KEY1=VAL1,KEY2=VAL2"
+func ParseEnvironment(envString string) (map[string]string, error) {
+	env := make(map[string]string)
+	if envString == "" {
+		return env, nil
+	}
+
+	pairs := strings.Split(envString, ",")
+	for _, pair := range pairs {
+		parts := strings.SplitN(pair, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid environment variable format: %s (expected KEY=VALUE)", pair)
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if key == "" {
+			return nil, fmt.Errorf("empty environment variable key in: %s", pair)
+		}
+		env[key] = value
+	}
+	return env, nil
 }
 
 func DeleteCommand() *cobra.Command {
@@ -130,4 +188,31 @@ func PackageCommand() *cobra.Command {
 	}
 	packageCmd.Flags().String("output", "bootstrap", "Path to write the packaged lambda function.")
 	return packageCmd
+}
+
+func ListCommand() *cobra.Command {
+	var listCmd = &cobra.Command{
+		Use:          "list",
+		Short:        "List all Lambda functions deployed by glambda.",
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+		Example:      `glambda list`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			functions, err := glambda.List()
+			if err != nil {
+				return err
+			}
+			if len(functions) == 0 {
+				fmt.Println("No glambda-managed Lambda functions found.")
+				return nil
+			}
+			fmt.Printf("%-30s %-20s %-30s\n", "NAME", "RUNTIME", "LAST MODIFIED")
+			fmt.Println(strings.Repeat("-", 80))
+			for _, fn := range functions {
+				fmt.Printf("%-30s %-20s %-30s\n", fn.Name, fn.Runtime, fn.LastModified)
+			}
+			return nil
+		},
+	}
+	return listCmd
 }
