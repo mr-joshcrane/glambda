@@ -57,7 +57,7 @@ func PackageTo(path string, output io.Writer) error {
 	}
 
 	cmd = exec.Command("go", "mod", "tidy")
-	envs = append(envs, "GOMODCACHE="+GOMODCACHE, "GOCACHE="+GOCACHE)
+	envs = append(envs, "GOMODCACHE="+GOMODCACHE, "GOCACHE="+GOCACHE, "GOOS=linux", "GOARCH=arm64", "CGO_ENABLED=0")
 	cmd.Env = envs
 	cmd.Dir = tmpDir
 	out, err = cmd.CombinedOutput()
