@@ -173,7 +173,7 @@ func TestValidate_RejectsIncorrectlySetupLambdaSourceFiles(t *testing.T) {
 func TestCreateLambdaCommand(t *testing.T) {
 	t.Parallel()
 	config := glambda.LambdaConfig{}
-	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"), config)
+	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"), config, nil)
 	want := &lambda.CreateFunctionInput{
 		FunctionName: aws.String("lambdaName"),
 		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-role"),
@@ -207,7 +207,7 @@ func TestCreateLambdaCommand_WithConfig(t *testing.T) {
 			"KEY2": "value2",
 		},
 	}
-	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"), config)
+	cmd := glambda.CreateLambdaCommand("lambdaName", "arn:aws:iam::123456789012:role/lambda-role", []byte("some valid zip data"), config, nil)
 
 	if cmd.Timeout == nil || *cmd.Timeout != 30 {
 		t.Errorf("expected timeout 30, got %v", cmd.Timeout)
@@ -389,7 +389,7 @@ func TestPutRolePolicyCommand_WhereCommandExists(t *testing.T) {
 	cmds := glambda.PutRolePolicyCommand(role)
 	want := []iam.PutRolePolicyInput{
 		{
-			PolicyName:     aws.String("glambda_inline_policy_DEADBEEF"),
+			PolicyName:     aws.String("glambda_inline_policy"),
 			PolicyDocument: aws.String(`some inline policy`),
 			RoleName:       aws.String("aRoleName"),
 		},
@@ -631,7 +631,7 @@ func TestCreateRoleActionDo_AttachesManagedPolicies(t *testing.T) {
 	}
 	action.InlinePolicies = []iam.PutRolePolicyInput{
 		{
-			PolicyName:     aws.String("glambda_inline_policy_DEADBEEF"),
+			PolicyName:     aws.String("glambda_inline_policy"),
 			PolicyDocument: aws.String(`some inline policy`),
 		},
 	}

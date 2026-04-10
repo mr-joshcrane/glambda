@@ -37,6 +37,8 @@ func Main(args []string, opts ...CommandOptions) error {
 		DeleteCommand(),
 		PackageCommand(),
 		ListCommand(),
+		PlanCommand(),
+		ApplyCommand(),
 	}
 	for _, opt := range opts {
 		err := opt(rootCmd)
@@ -215,4 +217,93 @@ func ListCommand() *cobra.Command {
 		},
 	}
 	return listCmd
+}
+
+func PlanCommand() *cobra.Command {
+	var planCmd = &cobra.Command{
+		Use:          "plan",
+		Short:        "Show what changes would be made to reconcile AWS with glambda.toml.",
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+		Example:      `glambda plan --config glambda.toml`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			configPath, _ := cmd.Flags().GetString("config")
+			cfg, err := glambda.LoadConfig(configPath)
+			if err != nil {
+				return err
+			}
+			plan, err := glambda.PlanFromConfig(cfg)
+			if err != nil {
+				return err
+			}
+			printPlan(plan)
+			return nil
+		},
+	}
+	planCmd.Flags().String("config", "glambda.toml", "Path to the glambda.toml config file")
+	return planCmd
+}
+
+func ApplyCommand() *cobra.Command {
+	var applyCmd = &cobra.Command{
+		Use:          "apply",
+		Short:        "Apply changes to reconcile AWS with glambda.toml.",
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+		Example:      `glambda apply --config glambda.toml`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			configPath, _ := cmd.Flags().GetString("config")
+			autoApprove, _ := cmd.Flags().GetBool("auto-approve")
+			cfg, err := glambda.LoadConfig(configPath)
+			if err != nil {
+				return err
+			}
+			plan, err := glambda.PlanFromConfig(cfg)
+			if err != nil {
+				return err
+			}
+			printPlan(plan)
+			if !plan.HasChanges() {
+				return nil
+			}
+			if !autoApprove {
+				fmt.Print("\nDo you want to apply these changes? (yes/no): ")
+				var response string
+				fmt.Scanln(&response)
+				if response != "yes" {
+					fmt.Println("Apply cancelled.")
+					return nil
+				}
+			}
+			err = glambda.ExecutePlan(plan, cfg)
+			if err != nil {
+				return err
+			}
+			fmt.Println("\nApply complete.")
+			return nil
+		},
+	}
+	applyCmd.Flags().String("config", "glambda.toml", "Path to the glambda.toml config file")
+	applyCmd.Flags().Bool("auto-approve", false, "Skip interactive approval before applying")
+	return applyCmd
+}
+
+func printPlan(plan glambda.Plan) {
+	creates, updates, deletes := plan.Summary()
+	fmt.Printf("Project: %s\n\n", plan.ProjectName)
+	if !plan.HasChanges() {
+		fmt.Println("No changes. Infrastructure is up-to-date.")
+		return
+	}
+	for _, item := range plan.Items {
+		switch item.Action {
+		case glambda.PlanCreate:
+			fmt.Printf("  + CREATE  %-30s (%s)\n", item.Name, item.Reason)
+		case glambda.PlanUpdate:
+			fmt.Printf("  ~ UPDATE  %-30s (%s)\n", item.Name, item.Reason)
+		case glambda.PlanDelete:
+			fmt.Printf("  - DELETE  %-30s (%s)\n", item.Name, item.Reason)
+		}
+	}
+	fmt.Printf("\nPlan: %d to create, %d to update, %d to delete.\n", creates, updates, deletes)
 }

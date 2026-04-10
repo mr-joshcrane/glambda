@@ -30,6 +30,7 @@ type LambdaClient interface {
 	AddPermission(ctx context.Context, params *lambda.AddPermissionInput, optFns ...func(*lambda.Options)) (*lambda.AddPermissionOutput, error)
 	DeleteFunction(ctx context.Context, params *lambda.DeleteFunctionInput, optFns ...func(*lambda.Options)) (*lambda.DeleteFunctionOutput, error)
 	ListFunctions(ctx context.Context, params *lambda.ListFunctionsInput, optFns ...func(*lambda.Options)) (*lambda.ListFunctionsOutput, error)
+	TagResource(ctx context.Context, params *lambda.TagResourceInput, optFns ...func(*lambda.Options)) (*lambda.TagResourceOutput, error)
 }
 
 // IAMClient represents the interface that an iam client should implement.
@@ -110,7 +111,7 @@ func PutRolePolicyCommand(role ExecutionRole) []iam.PutRolePolicyInput {
 		return inputs
 	}
 	cmd := iam.PutRolePolicyInput{
-		PolicyName:     aws.String("glambda_inline_policy_" + UUID()),
+		PolicyName:     aws.String("glambda_inline_policy"),
 		PolicyDocument: aws.String(role.InLinePolicy),
 		RoleName:       aws.String(role.RoleName),
 	}
