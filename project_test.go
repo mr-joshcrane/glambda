@@ -3,6 +3,7 @@ package glambda_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mr-joshcrane/glambda"
@@ -252,5 +253,94 @@ func TestToDeployOptions_MinimalFields(t *testing.T) {
 	opts := def.ToDeployOptions()
 	if len(opts) != 0 {
 		t.Errorf("expected 0 deploy options for minimal config, got %d", len(opts))
+	}
+}
+
+func TestParseConfig_ResolvesEnvVarReferences(t *testing.T) {
+	t.Setenv("TEST_SECRET_KEY", "super-secret-value")
+	config, err := glambda.ParseConfig(`
+[project]
+name = "my-service"
+
+[[lambda]]
+name = "test"
+handler = "./main.go"
+
+[lambda.environment]
+API_KEY = "${TEST_SECRET_KEY}"
+STATIC_VAL = "plaintext"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := config.Lambda[0].Environment
+	if env["API_KEY"] != "super-secret-value" {
+		t.Errorf("expected resolved value 'super-secret-value', got %q", env["API_KEY"])
+	}
+	if env["STATIC_VAL"] != "plaintext" {
+		t.Errorf("expected static value 'plaintext', got %q", env["STATIC_VAL"])
+	}
+}
+
+func TestParseConfig_FailsOnMissingEnvVar(t *testing.T) {
+	_, err := glambda.ParseConfig(`
+[project]
+name = "my-service"
+
+[[lambda]]
+name = "test"
+handler = "./main.go"
+
+[lambda.environment]
+SECRET = "${DEFINITELY_NOT_SET_ANYWHERE}"
+`)
+	if err == nil {
+		t.Fatal("expected error for unset env var reference")
+	}
+	if !strings.Contains(err.Error(), "DEFINITELY_NOT_SET_ANYWHERE") {
+		t.Errorf("expected error to mention the missing var, got: %s", err)
+	}
+	if !strings.Contains(err.Error(), "not set") {
+		t.Errorf("expected error to say 'not set', got: %s", err)
+	}
+}
+
+func TestParseConfig_FailsOnEmptyEnvVar(t *testing.T) {
+	t.Setenv("EMPTY_SECRET", "")
+	_, err := glambda.ParseConfig(`
+[project]
+name = "my-service"
+
+[[lambda]]
+name = "test"
+handler = "./main.go"
+
+[lambda.environment]
+SECRET = "${EMPTY_SECRET}"
+`)
+	if err == nil {
+		t.Fatal("expected error for empty env var")
+	}
+}
+
+func TestParseConfig_MultiplerefsInOneValue(t *testing.T) {
+	t.Setenv("HOST", "db.example.com")
+	t.Setenv("PORT", "5432")
+	config, err := glambda.ParseConfig(`
+[project]
+name = "my-service"
+
+[[lambda]]
+name = "test"
+handler = "./main.go"
+
+[lambda.environment]
+DB_URL = "${HOST}:${PORT}"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Lambda[0].Environment["DB_URL"] != "db.example.com:5432" {
+		t.Errorf("expected 'db.example.com:5432', got %q", config.Lambda[0].Environment["DB_URL"])
 	}
 }

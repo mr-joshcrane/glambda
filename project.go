@@ -4,11 +4,14 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 )
+
+var envRefPattern = regexp.MustCompile(`\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}`)
 
 // ProjectConfig represents the top-level structure of a glambda.toml file.
 // It defines a project name that groups lambdas together, and the set of
@@ -51,7 +54,9 @@ func LoadConfig(path string) (ProjectConfig, error) {
 }
 
 // ParseConfig parses TOML content into a ProjectConfig, performing
-// validation on the result.
+// validation and environment variable resolution on the result.
+// Values wrapped in ${VAR} are resolved from the process environment.
+// Unset or empty environment variables are a hard error.
 func ParseConfig(content string) (ProjectConfig, error) {
 	var config ProjectConfig
 	_, err := toml.Decode(content, &config)
@@ -62,7 +67,42 @@ func ParseConfig(content string) (ProjectConfig, error) {
 	if err != nil {
 		return ProjectConfig{}, err
 	}
+	err = resolveEnvironmentRefs(&config)
+	if err != nil {
+		return ProjectConfig{}, err
+	}
 	return config, nil
+}
+
+// resolveEnvironmentRefs walks all environment values across all lambda
+// definitions and replaces ${VAR} references with the corresponding
+// process environment variable. Returns an error if any referenced
+// variable is unset or empty.
+func resolveEnvironmentRefs(config *ProjectConfig) error {
+	for i := range config.Lambda {
+		for key, val := range config.Lambda[i].Environment {
+			resolved, err := resolveString(val, config.Lambda[i].Name, key)
+			if err != nil {
+				return err
+			}
+			config.Lambda[i].Environment[key] = resolved
+		}
+	}
+	return nil
+}
+
+func resolveString(val, lambdaName, key string) (string, error) {
+	var resolveErr error
+	resolved := envRefPattern.ReplaceAllStringFunc(val, func(match string) string {
+		envVar := envRefPattern.FindStringSubmatch(match)[1]
+		envVal, ok := os.LookupEnv(envVar)
+		if !ok || envVal == "" {
+			resolveErr = fmt.Errorf("lambda %q environment key %q: references ${%s} but it is not set", lambdaName, key, envVar)
+			return match
+		}
+		return envVal
+	})
+	return resolved, resolveErr
 }
 
 func validateConfig(config ProjectConfig) error {
