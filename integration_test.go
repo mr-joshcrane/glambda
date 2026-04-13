@@ -296,4 +296,49 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 		t.Fatalf("step 5: expected no changes after final apply, got creates=%d updates=%d deletes=%d", creates, updates, deletes)
 	}
 	t.Log("step 5: final consistency confirmed ✓")
+
+	t.Log("step 6: empty config — expect plan to delete all 3 remaining lambdas")
+	cfg = glambda.ProjectConfig{
+		Project: glambda.ProjectMeta{Name: projectName},
+		Lambda:  []glambda.LambdaDefinition{},
+	}
+
+	plan, err = glambda.ComputePlan(cfg, lambdaClient)
+	if err != nil {
+		t.Fatalf("step 6: computing plan: %v", err)
+	}
+
+	creates, updates, deletes = plan.Summary()
+	t.Logf("step 6: plan computed: creates=%d updates=%d deletes=%d", creates, updates, deletes)
+	if creates != 0 || updates != 0 || deletes != 3 {
+		t.Fatalf("step 6: expected 0/0/3, got creates=%d updates=%d deletes=%d", creates, updates, deletes)
+	}
+
+	t.Log("step 6: executing plan...")
+	err = glambda.ExecutePlan(plan, cfg)
+	if err != nil {
+		t.Fatalf("step 6: executing plan: %v", err)
+	}
+	t.Log("step 6: delete-all complete, waiting for consistency...")
+
+	waitForAWSConsistency()
+
+	for _, name := range []string{"integ-alpha", "integ-beta", "integ-delta"} {
+		if functionExists(t, lambdaClient, name) {
+			t.Fatalf("step 6: expected %s to be deleted, but it still exists", name)
+		}
+	}
+	t.Log("step 6: all lambdas deleted via empty config ✓")
+
+	t.Log("step 7: verifying empty state is consistent (expect no-op)")
+	plan, err = glambda.ComputePlan(cfg, lambdaClient)
+	if err != nil {
+		t.Fatalf("step 7: computing plan: %v", err)
+	}
+
+	if plan.HasChanges() {
+		creates, updates, deletes = plan.Summary()
+		t.Fatalf("step 7: expected no changes after empty-config apply, got creates=%d updates=%d deletes=%d", creates, updates, deletes)
+	}
+	t.Log("step 7: empty state consistency confirmed ✓")
 }
