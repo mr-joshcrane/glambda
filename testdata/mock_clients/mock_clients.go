@@ -90,6 +90,10 @@ func (d DummyLambdaClient) ListFunctions(ctx context.Context, input *lambda.List
 	}, nil
 }
 
+func (d DummyLambdaClient) TagResource(ctx context.Context, input *lambda.TagResourceInput, opts ...func(*lambda.Options)) (*lambda.TagResourceOutput, error) {
+	return &lambda.TagResourceOutput{}, nil
+}
+
 type DummyIAMClient struct {
 	RoleExists bool
 	RoleName   string
