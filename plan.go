@@ -80,7 +80,7 @@ func ComputePlan(cfg ProjectConfig, client LambdaClient) (Plan, error) {
 
 	// Check each desired lambda against remote state
 	for _, def := range cfg.Lambda {
-		r, exists := remoteByName[def.Name]
+		_, exists := remoteByName[def.Name]
 		if !exists {
 			plan.Items = append(plan.Items, PlanItem{
 				Action:     PlanCreate,
@@ -88,15 +88,11 @@ func ComputePlan(cfg ProjectConfig, client LambdaClient) (Plan, error) {
 				Reason:     "not found in AWS",
 				Definition: &def,
 			})
-			continue
-		}
-		// Exists — check if config hash differs
-		desiredHash := ConfigHash(def)
-		if r.configHash != desiredHash {
+		} else {
 			plan.Items = append(plan.Items, PlanItem{
 				Action:     PlanUpdate,
 				Name:       def.Name,
-				Reason:     "config changed",
+				Reason:     "deploy",
 				Definition: &def,
 			})
 		}
