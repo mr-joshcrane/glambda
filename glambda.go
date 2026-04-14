@@ -341,20 +341,19 @@ func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
 		return nil, err
 	}
 
-	var action LambdaAction
-	if exists {
-		currentFunc, err := c.GetFunction(context.Background(), &lambda.GetFunctionInput{
-			FunctionName: aws.String(l.Name),
-		})
-		if err != nil {
-			return nil, err
-		}
-		mergedConfig := MergeConfiguration(currentFunc.Configuration, l.Config)
-		action = NewLambdaUpdateAction(c, l, pkg.Bytes(), mergedConfig)
-	} else {
-		action = NewLambdaCreateAction(c, l, pkg.Bytes())
+	if !exists {
+		return NewLambdaCreateAction(c, l, pkg.Bytes()), nil
 	}
-	return action, nil
+
+	currentFunc, err := c.GetFunction(context.Background(), &lambda.GetFunctionInput{
+		FunctionName: aws.String(l.Name),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	mergedConfig := MergeConfiguration(currentFunc.Configuration, l.Config)
+	return NewLambdaUpdateAction(c, l, pkg.Bytes(), mergedConfig), nil
 }
 
 // CreateLambdaCommand is a paperwork reducer that translates parameters into
