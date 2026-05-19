@@ -13,17 +13,17 @@ import (
 func TestCheckDrift_NoDriftWhenNoLocalImports(t *testing.T) {
 	t.Parallel()
 	handler := filepath.Join(t.TempDir(), "main.go")
-	os.WriteFile(handler, []byte(`package main
+	err := os.WriteFile(handler, []byte(`package main
 
 import "fmt"
 
 func main() { fmt.Println("hi") }
 `), 0o644)
-
-	drifts, err := glambda.CheckDrift(handler)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	drifts := glambda.CheckDrift(handler)
 	if len(drifts) != 0 {
 		t.Errorf("expected no drifts for handler with no local imports, got %d", len(drifts))
 	}
@@ -32,25 +32,34 @@ func main() { fmt.Println("hi") }
 func TestCheckDrift_NoDriftWhenNotInGitRepo(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	gomod := filepath.Join(dir, "go.mod")
-	os.WriteFile(gomod, []byte("module example.com/test\n\ngo 1.22\n"), 0o644)
+
+	err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/test\n\ngo 1.22\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	pkgDir := filepath.Join(dir, "pkg")
-	os.MkdirAll(pkgDir, 0o755)
-	os.WriteFile(filepath.Join(pkgDir, "lib.go"), []byte("package pkg\n"), 0o644)
+	err = os.MkdirAll(pkgDir, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.WriteFile(filepath.Join(pkgDir, "lib.go"), []byte("package pkg\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	handler := filepath.Join(dir, "main.go")
-	os.WriteFile(handler, []byte(`package main
+	err = os.WriteFile(handler, []byte(`package main
 
 import "example.com/test/pkg"
 
 func main() { _ = pkg.X }
 `), 0o644)
-
-	drifts, err := glambda.CheckDrift(handler)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	drifts := glambda.CheckDrift(handler)
 	if len(drifts) != 0 {
 		t.Errorf("expected no drifts outside git repo, got %d", len(drifts))
 	}
@@ -64,29 +73,41 @@ func TestCheckDrift_DetectsUncommittedChanges(t *testing.T) {
 	run(t, dir, "git", "config", "user.email", "test@test.com")
 	run(t, dir, "git", "config", "user.name", "Test")
 
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/test\n\ngo 1.22\n"), 0o644)
+	err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/test\n\ngo 1.22\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	pkgDir := filepath.Join(dir, "pkg")
-	os.MkdirAll(pkgDir, 0o755)
-	os.WriteFile(filepath.Join(pkgDir, "lib.go"), []byte("package pkg\n\nvar X = 1\n"), 0o644)
+	err = os.MkdirAll(pkgDir, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.WriteFile(filepath.Join(pkgDir, "lib.go"), []byte("package pkg\n\nvar X = 1\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	handler := filepath.Join(dir, "main.go")
-	os.WriteFile(handler, []byte(`package main
+	err = os.WriteFile(handler, []byte(`package main
 
 import "example.com/test/pkg"
 
 func main() { _ = pkg.X }
 `), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	run(t, dir, "git", "add", ".")
 	run(t, dir, "git", "commit", "-m", "initial")
 
-	os.WriteFile(filepath.Join(pkgDir, "lib.go"), []byte("package pkg\n\nvar X = 2\n"), 0o644)
-
-	drifts, err := glambda.CheckDrift(handler)
+	err = os.WriteFile(filepath.Join(pkgDir, "lib.go"), []byte("package pkg\n\nvar X = 2\n"), 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	drifts := glambda.CheckDrift(handler)
 	if len(drifts) != 1 {
 		t.Fatalf("expected 1 drift, got %d", len(drifts))
 	}
@@ -130,13 +151,66 @@ func TestFormatDriftWarning_FormatsCorrectly(t *testing.T) {
 	}
 }
 
+func TestCheckDrift_DetectsRootModuleImport(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	run(t, dir, "git", "init")
+	run(t, dir, "git", "config", "user.email", "test@test.com")
+	run(t, dir, "git", "config", "user.name", "Test")
+
+	err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/test\n\ngo 1.22\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.WriteFile(filepath.Join(dir, "lib.go"), []byte("package test\n\nvar X = 1\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	subDir := filepath.Join(dir, "cmd")
+	err = os.MkdirAll(subDir, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := filepath.Join(subDir, "main.go")
+	err = os.WriteFile(handler, []byte(`package main
+
+import "example.com/test"
+
+func main() { _ = test.X }
+`), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run(t, dir, "git", "add", ".")
+	run(t, dir, "git", "commit", "-m", "initial")
+
+	err = os.WriteFile(filepath.Join(dir, "lib.go"), []byte("package test\n\nvar X = 2\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	drifts := glambda.CheckDrift(handler)
+	if len(drifts) != 1 {
+		t.Fatalf("expected 1 drift for root module import, got %d", len(drifts))
+	}
+	if drifts[0].Package != "example.com/test" {
+		t.Errorf("expected package example.com/test, got %s", drifts[0].Package)
+	}
+}
+
 func TestParseLocalImports_ExtractsModuleImports(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/test/repo\n\ngo 1.22\n"), 0o644)
+	err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/test/repo\n\ngo 1.22\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	handler := filepath.Join(dir, "main.go")
-	os.WriteFile(handler, []byte(`package main
+	err = os.WriteFile(handler, []byte(`package main
 
 import (
 	"fmt"
@@ -149,11 +223,11 @@ func main() {
 	fmt.Println(auth.X, config.Y)
 }
 `), 0o644)
-
-	drifts, err := glambda.CheckDrift(handler)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	drifts := glambda.CheckDrift(handler)
 	if len(drifts) != 0 {
 		t.Errorf("expected no drifts (no git), got %d", len(drifts))
 	}

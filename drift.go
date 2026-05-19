@@ -18,30 +18,33 @@ type DriftStatus struct {
 
 // CheckDrift inspects the handler file's imports against the current module
 // and reports any local packages that have uncommitted or unpushed changes.
-// Returns nil if no drift is detected, or if we can't determine drift
+// Returns nil if no drift is detected, or if drift cannot be determined
 // (not a git repo, no upstream, handler has no local imports).
-func CheckDrift(handlerPath string) ([]DriftStatus, error) {
+func CheckDrift(handlerPath string) []DriftStatus {
 	modulePath, moduleRoot, err := findCurrentModule(handlerPath)
 	if err != nil {
-		return nil, nil
+		return nil
 	}
 
 	imports, err := parseLocalImports(handlerPath, modulePath)
 	if err != nil {
-		return nil, nil
+		return nil
 	}
 	if len(imports) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	if !isGitRepo(moduleRoot) {
-		return nil, nil
+		return nil
 	}
 
 	var results []DriftStatus
 	for _, imp := range imports {
 		rel := strings.TrimPrefix(imp, modulePath+"/")
 		dir := filepath.Join(moduleRoot, rel)
+		if imp == modulePath {
+			dir = moduleRoot
+		}
 
 		uncommitted := hasUncommittedChanges(moduleRoot, dir)
 		unpushed := unpushedCommitCount(moduleRoot, dir)
@@ -52,7 +55,7 @@ func CheckDrift(handlerPath string) ([]DriftStatus, error) {
 		}
 		results = append(results, DriftStatus{Package: imp, Reason: reason})
 	}
-	return results, nil
+	return results
 }
 
 func driftReason(uncommitted bool, unpushed int) string {
@@ -116,7 +119,7 @@ func parseLocalImports(handlerPath, modulePath string) ([]string, error) {
 	var imports []string
 	for _, imp := range f.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
-		if strings.HasPrefix(path, modulePath+"/") {
+		if path == modulePath || strings.HasPrefix(path, modulePath+"/") {
 			imports = append(imports, path)
 		}
 	}
@@ -155,8 +158,7 @@ func unpushedCommitCount(repoRoot, dir string) int {
 
 // WarnDrift checks a handler for drift and returns the formatted warning.
 func WarnDrift(handlerPath string) string {
-	drifts, _ := CheckDrift(handlerPath)
-	return FormatDriftWarning(drifts)
+	return FormatDriftWarning(CheckDrift(handlerPath))
 }
 
 // FormatDriftWarning produces the user-facing warning string for detected drift.
