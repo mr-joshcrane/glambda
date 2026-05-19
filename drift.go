@@ -16,26 +16,33 @@ type DriftStatus struct {
 	Reason  string
 }
 
+// DriftResult is the outcome of a drift check. Callers can distinguish
+// between "checked and found no drift" (Skipped=false, empty Drifts) and
+// "could not check" (Skipped=true, SkipReason explains why).
+type DriftResult struct {
+	Drifts     []DriftStatus
+	Skipped    bool
+	SkipReason string
+}
+
 // CheckDrift inspects the handler file's imports against the current module
 // and reports any local packages that have uncommitted or unpushed changes.
-// Returns nil if no drift is detected, or if drift cannot be determined
-// (not a git repo, no upstream, handler has no local imports).
-func CheckDrift(handlerPath string) []DriftStatus {
+func CheckDrift(handlerPath string) DriftResult {
 	modulePath, moduleRoot, err := findCurrentModule(handlerPath)
 	if err != nil {
-		return nil
+		return DriftResult{Skipped: true, SkipReason: err.Error()}
 	}
 
 	imports, err := parseLocalImports(handlerPath, modulePath)
 	if err != nil {
-		return nil
+		return DriftResult{Skipped: true, SkipReason: fmt.Sprintf("parsing imports: %s", err)}
 	}
 	if len(imports) == 0 {
-		return nil
+		return DriftResult{Skipped: true, SkipReason: "no local module imports"}
 	}
 
 	if !isGitRepo(moduleRoot) {
-		return nil
+		return DriftResult{Skipped: true, SkipReason: "not a git repository"}
 	}
 
 	var results []DriftStatus
@@ -55,7 +62,7 @@ func CheckDrift(handlerPath string) []DriftStatus {
 		}
 		results = append(results, DriftStatus{Package: imp, Reason: reason})
 	}
-	return results
+	return DriftResult{Drifts: results}
 }
 
 func driftReason(uncommitted bool, unpushed int) string {
@@ -158,7 +165,8 @@ func unpushedCommitCount(repoRoot, dir string) int {
 
 // WarnDrift checks a handler for drift and returns the formatted warning.
 func WarnDrift(handlerPath string) string {
-	return FormatDriftWarning(CheckDrift(handlerPath))
+	result := CheckDrift(handlerPath)
+	return FormatDriftWarning(result.Drifts)
 }
 
 // FormatDriftWarning produces the user-facing warning string for detected drift.

@@ -24,8 +24,11 @@ func main() { fmt.Println("hi") }
 	}
 
 	drifts := glambda.CheckDrift(handler)
-	if len(drifts) != 0 {
-		t.Errorf("expected no drifts for handler with no local imports, got %d", len(drifts))
+	if len(drifts.Drifts) != 0 {
+		t.Errorf("expected no drifts for handler with no local imports, got %d", len(drifts.Drifts))
+	}
+	if !drifts.Skipped {
+		t.Error("expected check to be skipped (no go.mod in temp dir)")
 	}
 }
 
@@ -60,8 +63,11 @@ func main() { _ = pkg.X }
 	}
 
 	drifts := glambda.CheckDrift(handler)
-	if len(drifts) != 0 {
-		t.Errorf("expected no drifts outside git repo, got %d", len(drifts))
+	if len(drifts.Drifts) != 0 {
+		t.Errorf("expected no drifts outside git repo, got %d", len(drifts.Drifts))
+	}
+	if !drifts.Skipped {
+		t.Error("expected check to be skipped (not a git repo)")
 	}
 }
 
@@ -108,14 +114,17 @@ func main() { _ = pkg.X }
 	}
 
 	drifts := glambda.CheckDrift(handler)
-	if len(drifts) != 1 {
-		t.Fatalf("expected 1 drift, got %d", len(drifts))
+	if drifts.Skipped {
+		t.Fatalf("expected check to run, but was skipped: %s", drifts.SkipReason)
 	}
-	if !strings.Contains(drifts[0].Reason, "uncommitted") {
-		t.Errorf("expected reason to mention uncommitted, got %s", drifts[0].Reason)
+	if len(drifts.Drifts) != 1 {
+		t.Fatalf("expected 1 drift, got %d", len(drifts.Drifts))
 	}
-	if !strings.Contains(drifts[0].Package, "example.com/test/pkg") {
-		t.Errorf("expected package to contain example.com/test/pkg, got %s", drifts[0].Package)
+	if !strings.Contains(drifts.Drifts[0].Reason, "uncommitted") {
+		t.Errorf("expected reason to mention uncommitted, got %s", drifts.Drifts[0].Reason)
+	}
+	if !strings.Contains(drifts.Drifts[0].Package, "example.com/test/pkg") {
+		t.Errorf("expected package to contain example.com/test/pkg, got %s", drifts.Drifts[0].Package)
 	}
 }
 
@@ -193,11 +202,14 @@ func main() { _ = test.X }
 	}
 
 	drifts := glambda.CheckDrift(handler)
-	if len(drifts) != 1 {
-		t.Fatalf("expected 1 drift for root module import, got %d", len(drifts))
+	if drifts.Skipped {
+		t.Fatalf("expected check to run, but was skipped: %s", drifts.SkipReason)
 	}
-	if drifts[0].Package != "example.com/test" {
-		t.Errorf("expected package example.com/test, got %s", drifts[0].Package)
+	if len(drifts.Drifts) != 1 {
+		t.Fatalf("expected 1 drift for root module import, got %d", len(drifts.Drifts))
+	}
+	if drifts.Drifts[0].Package != "example.com/test" {
+		t.Errorf("expected package example.com/test, got %s", drifts.Drifts[0].Package)
 	}
 }
 
@@ -228,8 +240,8 @@ func main() {
 	}
 
 	drifts := glambda.CheckDrift(handler)
-	if len(drifts) != 0 {
-		t.Errorf("expected no drifts (no git), got %d", len(drifts))
+	if len(drifts.Drifts) != 0 {
+		t.Errorf("expected no drifts (no git), got %d", len(drifts.Drifts))
 	}
 }
 
