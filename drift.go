@@ -1,8 +1,9 @@
 package glambda
 
 import (
-	"bufio"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,9 +12,8 @@ import (
 
 // DriftStatus describes what kind of local changes exist for a package.
 type DriftStatus struct {
-	Package     string
-	Uncommitted bool
-	Unpushed    int // number of commits ahead of upstream
+	Package string
+	Reason  string
 }
 
 // CheckDrift inspects the handler file's imports against the current module
@@ -23,15 +23,15 @@ type DriftStatus struct {
 func CheckDrift(handlerPath string) ([]DriftStatus, error) {
 	modulePath, moduleRoot, err := findCurrentModule(handlerPath)
 	if err != nil {
-		return nil, nil // can't determine module — skip silently
+		return nil, nil
 	}
 
 	imports, err := parseLocalImports(handlerPath, modulePath)
 	if err != nil {
-		return nil, nil // can't parse — skip silently
+		return nil, nil
 	}
 	if len(imports) == 0 {
-		return nil, nil // no local imports — nothing to check
+		return nil, nil
 	}
 
 	if !isGitRepo(moduleRoot) {
@@ -43,15 +43,29 @@ func CheckDrift(handlerPath string) ([]DriftStatus, error) {
 		rel := strings.TrimPrefix(imp, modulePath+"/")
 		dir := filepath.Join(moduleRoot, rel)
 
-		status := DriftStatus{Package: imp}
-		status.Uncommitted = hasUncommittedChanges(moduleRoot, dir)
-		status.Unpushed = unpushedCommitCount(moduleRoot, dir)
+		uncommitted := hasUncommittedChanges(moduleRoot, dir)
+		unpushed := unpushedCommitCount(moduleRoot, dir)
 
-		if status.Uncommitted || status.Unpushed > 0 {
-			results = append(results, status)
+		reason := driftReason(uncommitted, unpushed)
+		if reason == "" {
+			continue
 		}
+		results = append(results, DriftStatus{Package: imp, Reason: reason})
 	}
 	return results, nil
+}
+
+func driftReason(uncommitted bool, unpushed int) string {
+	switch {
+	case uncommitted && unpushed > 0:
+		return fmt.Sprintf("uncommitted changes + %d commits ahead", unpushed)
+	case uncommitted:
+		return "uncommitted changes"
+	case unpushed > 0:
+		return fmt.Sprintf("%d commits ahead of upstream", unpushed)
+	default:
+		return ""
+	}
 }
 
 func findCurrentModule(handlerPath string) (modulePath string, moduleRoot string, err error) {
@@ -79,15 +93,12 @@ func findCurrentModule(handlerPath string) (modulePath string, moduleRoot string
 }
 
 func parseModulePath(gomodPath string) (string, error) {
-	f, err := os.Open(gomodPath)
+	data, err := os.ReadFile(gomodPath)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "module ") {
 			return strings.TrimSpace(strings.TrimPrefix(line, "module")), nil
 		}
@@ -96,52 +107,20 @@ func parseModulePath(gomodPath string) (string, error) {
 }
 
 func parseLocalImports(handlerPath, modulePath string) ([]string, error) {
-	f, err := os.Open(handlerPath)
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, handlerPath, nil, parser.ImportsOnly)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 
 	var imports []string
-	scanner := bufio.NewScanner(f)
-	inImportBlock := false
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		if line == "import (" {
-			inImportBlock = true
-			continue
-		}
-		if inImportBlock && line == ")" {
-			inImportBlock = false
-			continue
-		}
-
-		var importPath string
-		if inImportBlock {
-			importPath = extractImportPath(line)
-		} else if after, found := strings.CutPrefix(line, "import "); found {
-			importPath = extractImportPath(after)
-		}
-
-		if importPath != "" && strings.HasPrefix(importPath, modulePath+"/") {
-			imports = append(imports, importPath)
+	for _, imp := range f.Imports {
+		path := strings.Trim(imp.Path.Value, `"`)
+		if strings.HasPrefix(path, modulePath+"/") {
+			imports = append(imports, path)
 		}
 	}
-	return imports, scanner.Err()
-}
-
-func extractImportPath(line string) string {
-	start := strings.IndexByte(line, '"')
-	if start == -1 {
-		return ""
-	}
-	end := strings.IndexByte(line[start+1:], '"')
-	if end == -1 {
-		return ""
-	}
-	return line[start+1 : start+1+end]
+	return imports, nil
 }
 
 func isGitRepo(dir string) bool {
@@ -174,6 +153,12 @@ func unpushedCommitCount(repoRoot, dir string) int {
 	return len(strings.Split(trimmed, "\n"))
 }
 
+// WarnDrift checks a handler for drift and returns the formatted warning.
+func WarnDrift(handlerPath string) string {
+	drifts, _ := CheckDrift(handlerPath)
+	return FormatDriftWarning(drifts)
+}
+
 // FormatDriftWarning produces the user-facing warning string for detected drift.
 func FormatDriftWarning(drifts []DriftStatus) string {
 	if len(drifts) == 0 {
@@ -185,14 +170,7 @@ func FormatDriftWarning(drifts []DriftStatus) string {
 	b.WriteString("  Unpushed changes in imported packages:\n")
 
 	for _, d := range drifts {
-		switch {
-		case d.Uncommitted && d.Unpushed > 0:
-			fmt.Fprintf(&b, "    • %s  (uncommitted changes + %d commits ahead)\n", d.Package, d.Unpushed)
-		case d.Uncommitted:
-			fmt.Fprintf(&b, "    • %s  (uncommitted changes)\n", d.Package)
-		default:
-			fmt.Fprintf(&b, "    • %s  (%d commits ahead of upstream)\n", d.Package, d.Unpushed)
-		}
+		fmt.Fprintf(&b, "    • %s  (%s)\n", d.Package, d.Reason)
 	}
 
 	b.WriteString("\n  Push your changes first, or use --dirty to deploy from local module state.\n")

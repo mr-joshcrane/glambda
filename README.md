@@ -154,11 +154,3 @@ Your handler is built directly from within its parent Go module. All local depen
 
 Use `--dirty` on `deploy`, `package`, and `apply` commands.
 
-#### Suppressing the drift warning
-
-If you're in pure mode and don't want the drift check (e.g., in CI where there's no upstream):
-
-```bash
-glambda deploy myFunc handler.go --skip-drift-check
-```
-

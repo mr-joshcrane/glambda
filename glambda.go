@@ -333,12 +333,11 @@ func PrepareRoleAction(role ExecutionRole, iamClient IAMClient) (RoleAction, err
 // For updates, it fetches the current configuration and merges it with the desired configuration.
 func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
 	pkg := new(bytes.Buffer)
-	var err error
+	packager := PackageTo
 	if l.Dirty {
-		err = PackageLocalTo(l.HandlerPath, pkg)
-	} else {
-		err = PackageTo(l.HandlerPath, pkg)
+		packager = PackageLocalTo
 	}
+	err := packager(l.HandlerPath, pkg)
 	if err != nil {
 		return nil, err
 	}

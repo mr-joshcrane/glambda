@@ -90,8 +90,8 @@ func main() { _ = pkg.X }
 	if len(drifts) != 1 {
 		t.Fatalf("expected 1 drift, got %d", len(drifts))
 	}
-	if !drifts[0].Uncommitted {
-		t.Error("expected drift to be flagged as uncommitted")
+	if !strings.Contains(drifts[0].Reason, "uncommitted") {
+		t.Errorf("expected reason to mention uncommitted, got %s", drifts[0].Reason)
 	}
 	if !strings.Contains(drifts[0].Package, "example.com/test/pkg") {
 		t.Errorf("expected package to contain example.com/test/pkg, got %s", drifts[0].Package)
@@ -109,8 +109,8 @@ func TestFormatDriftWarning_EmptyReturnsEmpty(t *testing.T) {
 func TestFormatDriftWarning_FormatsCorrectly(t *testing.T) {
 	t.Parallel()
 	drifts := []glambda.DriftStatus{
-		{Package: "example.com/test/pkg", Uncommitted: true, Unpushed: 0},
-		{Package: "example.com/test/auth", Uncommitted: false, Unpushed: 3},
+		{Package: "example.com/test/pkg", Reason: "uncommitted changes"},
+		{Package: "example.com/test/auth", Reason: "3 commits ahead of upstream"},
 	}
 	result := glambda.FormatDriftWarning(drifts)
 	if !strings.Contains(result, "Local drift detected") {
