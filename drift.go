@@ -38,7 +38,7 @@ func CheckDrift(handlerPath string) DriftResult {
 		return DriftResult{Skipped: true, SkipReason: fmt.Sprintf("parsing imports: %s", err)}
 	}
 	if len(imports) == 0 {
-		return DriftResult{Skipped: true, SkipReason: "no local module imports"}
+		return DriftResult{}
 	}
 
 	if !isGitRepo(moduleRoot) {

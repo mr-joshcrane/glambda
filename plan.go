@@ -81,21 +81,18 @@ func ComputePlan(cfg ProjectConfig, client LambdaClient) (Plan, error) {
 	// Check each desired lambda against remote state
 	for _, def := range cfg.Lambda {
 		_, exists := remoteByName[def.Name]
+		action := PlanUpdate
+		reason := "deploy"
 		if !exists {
-			plan.Items = append(plan.Items, PlanItem{
-				Action:     PlanCreate,
-				Name:       def.Name,
-				Reason:     "not found in AWS",
-				Definition: &def,
-			})
-		} else {
-			plan.Items = append(plan.Items, PlanItem{
-				Action:     PlanUpdate,
-				Name:       def.Name,
-				Reason:     "deploy",
-				Definition: &def,
-			})
+			action = PlanCreate
+			reason = "not found in AWS"
 		}
+		plan.Items = append(plan.Items, PlanItem{
+			Action:     action,
+			Name:       def.Name,
+			Reason:     reason,
+			Definition: &def,
+		})
 		delete(remoteByName, def.Name)
 	}
 
@@ -112,8 +109,7 @@ func ComputePlan(cfg ProjectConfig, client LambdaClient) (Plan, error) {
 }
 
 type remoteLambda struct {
-	name       string
-	configHash string
+	name string
 }
 
 func listProjectFunctions(client LambdaClient, projectName string) ([]remoteLambda, error) {
@@ -151,8 +147,7 @@ func listProjectFunctions(client LambdaClient, projectName string) ([]remoteLamb
 			}
 
 			results = append(results, remoteLambda{
-				name:       aws.ToString(fn.FunctionName),
-				configHash: fnDetails.Tags["GlambdaConfigHash"],
+				name: aws.ToString(fn.FunctionName),
 			})
 		}
 
