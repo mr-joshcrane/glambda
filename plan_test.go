@@ -106,7 +106,7 @@ func TestComputePlan_DetectsConfigChange(t *testing.T) {
 	}
 }
 
-func TestComputePlan_NoChangesWhenHashMatches(t *testing.T) {
+func TestComputePlan_AlwaysGeneratesUpdateForExistingLambdas(t *testing.T) {
 	t.Parallel()
 	def := glambda.LambdaDefinition{Name: "myFunc", Handler: "./main.go", Timeout: 30}
 	currentHash := glambda.ConfigHash(def)
@@ -131,8 +131,12 @@ func TestComputePlan_NoChangesWhenHashMatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.HasChanges() {
-		t.Error("expected no changes when hash matches")
+	if !plan.HasChanges() {
+		t.Error("expected plan to always generate UPDATE for existing lambdas")
+	}
+	creates, updates, deletes := plan.Summary()
+	if creates != 0 || updates != 1 || deletes != 0 {
+		t.Errorf("expected 0 creates, 1 update, 0 deletes — got %d/%d/%d", creates, updates, deletes)
 	}
 }
 
