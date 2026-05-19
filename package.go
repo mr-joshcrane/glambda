@@ -9,11 +9,43 @@ import (
 	"path/filepath"
 )
 
+// PackageLocalTo builds the handler from within its parent module, preserving
+// all local dependencies. Use this when you want the deployed binary to reflect
+// unpushed local module state (--dirty mode).
+func PackageLocalTo(path string, output io.Writer) error {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+
+	_, moduleRoot, err := findCurrentModule(absPath)
+	if err != nil {
+		return fmt.Errorf("--dirty requires handler to be within a Go module: %w", err)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "glambda-dirty")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	executablePath := filepath.Join(tmpDir, "bootstrap")
+	cmd := exec.Command("go", "build", "-tags", "lambda.norpc", "-o", executablePath, absPath)
+	cmd.Dir = moduleRoot
+	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=arm64", "CGO_ENABLED=0")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("error building lambda function: %w, %s", err, string(out))
+	}
+
+	return zipBootstrap(executablePath, output)
+}
+
 // PackageTo takes a path to a file, attempts to build it for the ARM64 architecture
-// and massages it into the format expected by AWS Lambda.
+// and massages it into the format expected by AWS Lambda (--pure mode).
 //
-// The result is a zip file containing the executable binary within the context
-// of a file system.
+// The handler is built in isolation — dependencies are resolved from their
+// published remote state, not local disk.
 func PackageTo(path string, output io.Writer) error {
 	tmpDir, err := os.MkdirTemp("", "bootstrap")
 	if err != nil {
@@ -74,6 +106,10 @@ func PackageTo(path string, output io.Writer) error {
 		return fmt.Errorf("error building lambda function: %w, %s", err, string(out))
 	}
 
+	return zipBootstrap(executablePath, output)
+}
+
+func zipBootstrap(executablePath string, output io.Writer) error {
 	zipWriter := zip.NewWriter(output)
 	header := &zip.FileHeader{
 		Name:   "bootstrap",
@@ -95,6 +131,5 @@ func PackageTo(path string, output io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("failed to write code to zip file: %w", err)
 	}
-	// Close the ZIP writer to finalize the archive
 	return zipWriter.Close()
 }

@@ -78,11 +78,24 @@ func DeployCommand() *cobra.Command {
 			memorySize, _ := cmd.Flags().GetInt("memory-size")
 			description, _ := cmd.Flags().GetString("description")
 			environment, _ := cmd.Flags().GetString("environment")
+			dirty, _ := cmd.Flags().GetBool("dirty")
+			skipDriftCheck, _ := cmd.Flags().GetBool("skip-drift-check")
 
 			opts := []glambda.DeployOptions{
 				glambda.WithManagedPolicies(managedPolicies),
 				glambda.WithInlinePolicy(inlinePolicy),
 				glambda.WithResourcePolicy(resourcePolicy),
+			}
+
+			if dirty {
+				opts = append(opts, glambda.WithDirty())
+			}
+
+			if !dirty && !skipDriftCheck {
+				drifts, _ := glambda.CheckDrift(sourceCodePath)
+				if len(drifts) > 0 {
+					fmt.Fprint(os.Stderr, glambda.FormatDriftWarning(drifts))
+				}
 			}
 
 			if timeout > 0 {
@@ -116,6 +129,8 @@ func DeployCommand() *cobra.Command {
 	deployCmd.Flags().Int("memory-size", 0, "Function memory in MB (128-10240)")
 	deployCmd.Flags().String("description", "", "Function description")
 	deployCmd.Flags().String("environment", "", "Environment variables as KEY1=VAL1,KEY2=VAL2 or 'none' to clear all")
+	deployCmd.Flags().Bool("dirty", false, "Build from local module state (includes unpushed dependencies)")
+	deployCmd.Flags().Bool("skip-drift-check", false, "Skip the local drift warning in pure mode")
 	return deployCmd
 }
 
@@ -175,12 +190,18 @@ func PackageCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("error getting output path, %w", err)
 			}
+			dirty, _ := cmd.Flags().GetBool("dirty")
 			outputFile, err := os.Create(outputPath)
 			if err != nil {
 				return err
 			}
 			defer outputFile.Close()
-			err = glambda.PackageTo(sourceCodePath, outputFile)
+
+			if dirty {
+				err = glambda.PackageLocalTo(sourceCodePath, outputFile)
+			} else {
+				err = glambda.PackageTo(sourceCodePath, outputFile)
+			}
 			if err != nil {
 				return fmt.Errorf("error packaging lambda function, %w", err)
 			}
@@ -189,6 +210,7 @@ func PackageCommand() *cobra.Command {
 		},
 	}
 	packageCmd.Flags().String("output", "bootstrap", "Path to write the packaged lambda function.")
+	packageCmd.Flags().Bool("dirty", false, "Build from local module state (includes unpushed dependencies)")
 	return packageCmd
 }
 
@@ -254,10 +276,23 @@ func ApplyCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configPath, _ := cmd.Flags().GetString("config")
 			autoApprove, _ := cmd.Flags().GetBool("auto-approve")
+			dirty, _ := cmd.Flags().GetBool("dirty")
+			skipDriftCheck, _ := cmd.Flags().GetBool("skip-drift-check")
 			cfg, err := glambda.LoadConfig(configPath)
 			if err != nil {
 				return err
 			}
+
+			if !dirty && !skipDriftCheck {
+				for _, def := range cfg.Lambda {
+					drifts, _ := glambda.CheckDrift(def.Handler)
+					if len(drifts) > 0 {
+						fmt.Fprintf(os.Stderr, "  [%s]\n", def.Name)
+						fmt.Fprint(os.Stderr, glambda.FormatDriftWarning(drifts))
+					}
+				}
+			}
+
 			plan, err := glambda.PlanFromConfig(cfg)
 			if err != nil {
 				return err
@@ -275,7 +310,12 @@ func ApplyCommand() *cobra.Command {
 					return nil
 				}
 			}
-			err = glambda.ExecutePlan(plan, cfg)
+
+			var opts []glambda.DeployOptions
+			if dirty {
+				opts = append(opts, glambda.WithDirty())
+			}
+			err = glambda.ExecutePlan(plan, cfg, opts...)
 			if err != nil {
 				return err
 			}
@@ -285,6 +325,8 @@ func ApplyCommand() *cobra.Command {
 	}
 	applyCmd.Flags().String("config", "glambda.toml", "Path to the glambda.toml config file")
 	applyCmd.Flags().Bool("auto-approve", false, "Skip interactive approval before applying")
+	applyCmd.Flags().Bool("dirty", false, "Build from local module state (includes unpushed dependencies)")
+	applyCmd.Flags().Bool("skip-drift-check", false, "Skip the local drift warning in pure mode")
 	return applyCmd
 }
 

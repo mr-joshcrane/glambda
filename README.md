@@ -119,3 +119,46 @@ the following command:
 glambda delete <lambdaName>
 ```
 
+---
+### Build Modes: Pure vs Dirty
+
+Glambda has two build modes that control how your handler's dependencies are resolved.
+
+#### Pure Mode (default)
+
+```bash
+glambda deploy myFunc handler.go
+```
+
+Your handler file is copied into an isolated temporary directory and built from scratch. Dependencies are resolved from their **published remote state** (i.e., what's on GitHub). This is reproducible and ensures the deployed binary matches what anyone else would get from the same source.
+
+**Trade-off:** If your handler imports packages from your own module and you have local changes that haven't been pushed, those changes will **not** be in the deployed binary. Glambda will warn you when this happens:
+
+```
+⚠ Local drift detected — deployed binary will use remote module state
+
+  Unpushed changes in imported packages:
+    • github.com/you/repo/internal/auth   (uncommitted changes)
+    • github.com/you/repo/pkg/config      (2 commits ahead of upstream)
+
+  Push your changes first, or use --dirty to deploy from local module state.
+```
+
+#### Dirty Mode
+
+```bash
+glambda deploy myFunc handler.go --dirty
+```
+
+Your handler is built directly from within its parent Go module. All local dependencies — committed, uncommitted, pushed or not — are included in the deployed binary. This is what you want when you're iterating locally and need to deploy your exact working state.
+
+Use `--dirty` on `deploy`, `package`, and `apply` commands.
+
+#### Suppressing the drift warning
+
+If you're in pure mode and don't want the drift check (e.g., in CI where there's no upstream):
+
+```bash
+glambda deploy myFunc handler.go --skip-drift-check
+```
+

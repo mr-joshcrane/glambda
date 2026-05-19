@@ -172,7 +172,7 @@ func listProjectFunctions(client LambdaClient, projectName string) ([]remoteLamb
 // ExecutePlan applies all the changes described in a Plan to AWS.
 // Plan items are executed concurrently since each lambda is independent.
 // On the first error, remaining work is cancelled and the error is returned.
-func ExecutePlan(plan Plan, cfg ProjectConfig) error {
+func ExecutePlan(plan Plan, cfg ProjectConfig, extraOpts ...DeployOptions) error {
 	if !plan.HasChanges() {
 		return nil
 	}
@@ -200,12 +200,12 @@ func ExecutePlan(plan Plan, cfg ProjectConfig) error {
 			var err error
 			switch item.Action {
 			case PlanCreate:
-				err = deployWithProjectTags(plan.ProjectName, *item.Definition)
+				err = deployWithProjectTags(plan.ProjectName, *item.Definition, extraOpts...)
 				if err != nil {
 					err = fmt.Errorf("creating %s: %w", item.Name, err)
 				}
 			case PlanUpdate:
-				err = deployWithProjectTags(plan.ProjectName, *item.Definition)
+				err = deployWithProjectTags(plan.ProjectName, *item.Definition, extraOpts...)
 				if err != nil {
 					err = fmt.Errorf("updating %s: %w", item.Name, err)
 				}
@@ -229,9 +229,10 @@ func ExecutePlan(plan Plan, cfg ProjectConfig) error {
 	return firstErr
 }
 
-func deployWithProjectTags(projectName string, def LambdaDefinition) error {
+func deployWithProjectTags(projectName string, def LambdaDefinition, extraOpts ...DeployOptions) error {
 	opts := def.ToDeployOptions()
 	opts = append(opts, withProjectTags(projectName, def))
+	opts = append(opts, extraOpts...)
 	return Deploy(def.Name, def.Handler, opts...)
 }
 
@@ -272,10 +273,10 @@ func PlanFromConfig(projectCfg ProjectConfig) (Plan, error) {
 
 // ApplyFromConfig is a convenience function that loads the config file,
 // computes a plan, and executes it. It is the entry point used by the CLI.
-func ApplyFromConfig(projectCfg ProjectConfig) (Plan, error) {
+func ApplyFromConfig(projectCfg ProjectConfig, extraOpts ...DeployOptions) (Plan, error) {
 	plan, err := PlanFromConfig(projectCfg)
 	if err != nil {
 		return plan, err
 	}
-	return plan, ExecutePlan(plan, projectCfg)
+	return plan, ExecutePlan(plan, projectCfg, extraOpts...)
 }
