@@ -28,6 +28,7 @@ type Lambda struct {
 	ResourcePolicy ResourcePolicy
 	Config         LambdaConfig
 	Tags           map[string]string
+	Dirty          bool
 	cfg            aws.Config
 }
 
@@ -332,7 +333,11 @@ func PrepareRoleAction(role ExecutionRole, iamClient IAMClient) (RoleAction, err
 // For updates, it fetches the current configuration and merges it with the desired configuration.
 func PrepareLambdaAction(l Lambda, c LambdaClient) (LambdaAction, error) {
 	pkg := new(bytes.Buffer)
-	err := PackageTo(l.HandlerPath, pkg)
+	packager := PackageTo
+	if l.Dirty {
+		packager = PackageLocalTo
+	}
+	err := packager(l.HandlerPath, pkg)
 	if err != nil {
 		return nil, err
 	}
@@ -567,6 +572,15 @@ func WithDescription(desc string) DeployOptions {
 		if desc != "" {
 			l.Config.Description = &desc
 		}
+		return nil
+	}
+}
+
+// WithDirty is a deploy option that builds the handler from within its parent
+// module, including unpushed local dependencies in the deployed binary.
+func WithDirty() DeployOptions {
+	return func(l *Lambda) error {
+		l.Dirty = true
 		return nil
 	}
 }

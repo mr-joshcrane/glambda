@@ -81,21 +81,18 @@ func ComputePlan(cfg ProjectConfig, client LambdaClient) (Plan, error) {
 	// Check each desired lambda against remote state
 	for _, def := range cfg.Lambda {
 		_, exists := remoteByName[def.Name]
+		action := PlanUpdate
+		reason := "deploy"
 		if !exists {
-			plan.Items = append(plan.Items, PlanItem{
-				Action:     PlanCreate,
-				Name:       def.Name,
-				Reason:     "not found in AWS",
-				Definition: &def,
-			})
-		} else {
-			plan.Items = append(plan.Items, PlanItem{
-				Action:     PlanUpdate,
-				Name:       def.Name,
-				Reason:     "deploy",
-				Definition: &def,
-			})
+			action = PlanCreate
+			reason = "not found in AWS"
 		}
+		plan.Items = append(plan.Items, PlanItem{
+			Action:     action,
+			Name:       def.Name,
+			Reason:     reason,
+			Definition: &def,
+		})
 		delete(remoteByName, def.Name)
 	}
 
@@ -112,8 +109,7 @@ func ComputePlan(cfg ProjectConfig, client LambdaClient) (Plan, error) {
 }
 
 type remoteLambda struct {
-	name       string
-	configHash string
+	name string
 }
 
 func listProjectFunctions(client LambdaClient, projectName string) ([]remoteLambda, error) {
@@ -151,8 +147,7 @@ func listProjectFunctions(client LambdaClient, projectName string) ([]remoteLamb
 			}
 
 			results = append(results, remoteLambda{
-				name:       aws.ToString(fn.FunctionName),
-				configHash: fnDetails.Tags["GlambdaConfigHash"],
+				name: aws.ToString(fn.FunctionName),
 			})
 		}
 
@@ -168,7 +163,7 @@ func listProjectFunctions(client LambdaClient, projectName string) ([]remoteLamb
 // ExecutePlan applies all the changes described in a Plan to AWS.
 // Plan items are executed concurrently since each lambda is independent.
 // On the first error, remaining work is cancelled and the error is returned.
-func ExecutePlan(plan Plan, cfg ProjectConfig) error {
+func ExecutePlan(plan Plan, cfg ProjectConfig, extraOpts ...DeployOptions) error {
 	if !plan.HasChanges() {
 		return nil
 	}
@@ -196,12 +191,12 @@ func ExecutePlan(plan Plan, cfg ProjectConfig) error {
 			var err error
 			switch item.Action {
 			case PlanCreate:
-				err = deployWithProjectTags(plan.ProjectName, *item.Definition)
+				err = deployWithProjectTags(plan.ProjectName, *item.Definition, extraOpts...)
 				if err != nil {
 					err = fmt.Errorf("creating %s: %w", item.Name, err)
 				}
 			case PlanUpdate:
-				err = deployWithProjectTags(plan.ProjectName, *item.Definition)
+				err = deployWithProjectTags(plan.ProjectName, *item.Definition, extraOpts...)
 				if err != nil {
 					err = fmt.Errorf("updating %s: %w", item.Name, err)
 				}
@@ -225,9 +220,10 @@ func ExecutePlan(plan Plan, cfg ProjectConfig) error {
 	return firstErr
 }
 
-func deployWithProjectTags(projectName string, def LambdaDefinition) error {
+func deployWithProjectTags(projectName string, def LambdaDefinition, extraOpts ...DeployOptions) error {
 	opts := def.ToDeployOptions()
 	opts = append(opts, withProjectTags(projectName, def))
+	opts = append(opts, extraOpts...)
 	return Deploy(def.Name, def.Handler, opts...)
 }
 
@@ -268,10 +264,10 @@ func PlanFromConfig(projectCfg ProjectConfig) (Plan, error) {
 
 // ApplyFromConfig is a convenience function that loads the config file,
 // computes a plan, and executes it. It is the entry point used by the CLI.
-func ApplyFromConfig(projectCfg ProjectConfig) (Plan, error) {
+func ApplyFromConfig(projectCfg ProjectConfig, extraOpts ...DeployOptions) (Plan, error) {
 	plan, err := PlanFromConfig(projectCfg)
 	if err != nil {
 		return plan, err
 	}
-	return plan, ExecutePlan(plan, projectCfg)
+	return plan, ExecutePlan(plan, projectCfg, extraOpts...)
 }
